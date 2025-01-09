@@ -1,9 +1,9 @@
 {
-    "Task": "PsychNamicRelevant",
-    "Date": "20250107",
+    "Task": "PsyNamicSingleLabel",
+    "Date": "20250109",
     "Int_to_label": {
-        "0": "excluded",
-        "1": "included"
+        "0": "irrelevant",
+        "1": "relevant"
     },
     "Train_size": 4513,
     "Use_val": true,
