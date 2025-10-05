@@ -14,7 +14,7 @@
     },
     "Train_size": 767,
     "Use_val": true,
-    "Is_multilabel": true,
+    "Is_multilabel": false,
     "Test_size": 97,
     "Val_size": 97
 }
