@@ -10,7 +10,7 @@ from sklearn.metrics import (
 import math
 
 
-EXPERIMENTS_PATH = "/home/vebern/scratch/PsyNamic/model/experiments"
+EXPERIMENTS_PATH = "/home/vebern/data/PsyNamic/model/experiments"
 DATE_PREFIX = "202502"  # Match folders with this prefix
 TASKS = [
     "Data Collection", "Data Type", "Number of Participants", "Age of Participants", "Application Form",
@@ -525,42 +525,51 @@ def plot_best_f1_scores(directory):
     plt.show()
 
 def main():
-    plot_best_f1_scores('/home/vera/Documents/Arbeit/CRS/PsychNER/model')
-    # save_dir = "model/performance_plots"
-    # task_model_performance = collect_metrics_all_tasks()
-    # plot_model_metric_all_tasks(task_model_performance,
-    #                             metrics=["F1", "Accuracy",
-    #                                      "Precision", "Recall"],
-    #                             save_dir=save_dir)
+    plot_best_f1_scores('/home/vebern/data/PsyNamic/model')
+    save_dir = "model/performance_plots"
+    task_model_performance = collect_metrics_all_tasks()
+    plot_model_metric_all_tasks(task_model_performance,
+                                metrics=["F1", "Accuracy",
+                                         "Precision", "Recall"],
+                                save_dir=save_dir)
+    # NOTE: precision-recall curves is outdated, as study type and study conclusion are no longer multilabel
     # best_models = plot_precision_recall_curve_all_tasks(
     #     task_model_performance, save_dir=save_dir)
-    # breakpoint()
-    # for task in TASKS:
-    #     task_key = task.lower().replace(" ", "_")
-    #     best_model = best_models[task_key]
-    #     model_path = find_model_path(task_key, best_model)
-    #     test_pred_file = os.path.join(
-    #         EXPERIMENTS_PATH, model_path, "test_predictions.csv")
-    #     checkpoints = [file for file in os.listdir(os.path.join(
-    #         EXPERIMENTS_PATH, model_path)) if 'checkpoint' in file]
+    for task in TASKS:
+        task_key = task.lower().replace(" ", "_")
+        df = pd.read_csv(os.path.join(
+            os.path.dirname(EXPERIMENTS_PATH), f"model_performance_{task_key}.csv"))
+        best_model = df.loc[df['F1'] == df['F1'].max()]['Model'].values
+        if len(best_model) > 1:
+            print(
+                f"\nMultiple models have the highest F1 score for task: {task}")
+        else:
+            best_model = best_model[0]
+        print(best_model)
+        # best_model = best_models[task_key]
+        model_path = find_model_path(task_key, best_model)
+        test_pred_file = os.path.join(
+            EXPERIMENTS_PATH, model_path, "test_predictions.csv")
+        checkpoints = [file for file in os.listdir(os.path.join(
+            EXPERIMENTS_PATH, model_path)) if 'checkpoint' in file]
 
-    #     config_file = os.path.join(
-    #         EXPERIMENTS_PATH, model_path, checkpoints[0], "config.json")
-    #     label_mapping = load_label_mapping(config_file)
-    #     params_file = os.path.join(
-    #         os.path.dirname(test_pred_file), "params.json")
-    #     with open(params_file, "r", encoding="utf-8") as f:
-    #         params = json.load(f)
-    #         is_multilabel = params.get("is_multilabel", True)
-    #     # Extract predictions
-    #     y_true, y_pred, _ = extract_predictions(test_pred_file, is_multilabel)
+        config_file = os.path.join(
+            EXPERIMENTS_PATH, model_path, checkpoints[0], "config.json")
+        label_mapping = load_label_mapping(config_file)
+        params_file = os.path.join(
+            os.path.dirname(test_pred_file), "params.json")
+        with open(params_file, "r", encoding="utf-8") as f:
+            params = json.load(f)
+            is_multilabel = params.get("is_multilabel", True)
+        # Extract predictions
+        y_true, y_pred, _ = extract_predictions(test_pred_file, is_multilabel)
 
-    #     # Generate per-label performance plots
-    #     plot_path = os.path.join(save_dir, f"performance_{task_key}.png")
-    #     plot_performance_per_label(
-    #         y_true, y_pred, label_mapping, plot_path, task, best_model)
+        # Generate per-label performance plots
+        plot_path = os.path.join(save_dir, f"performance_{task_key}.png")
+        plot_performance_per_label(
+            y_true, y_pred, label_mapping, plot_path, task, best_model)
 
-    #     print(f"Saved per-label performance plot for {task}: {plot_path}")
+        print(f"Saved per-label performance plot for {task}: {plot_path}")
 
 
 if __name__ == "__main__":
