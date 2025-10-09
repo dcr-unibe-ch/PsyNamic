@@ -252,24 +252,23 @@ def init_directories(model: str, task: str) -> str:
 
 def load_model(args: argparse.Namespace) -> Trainer:
     """Load a model from a given path and return a Trainer object."""
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
-    if 'NER' in args.task:
-        model = AutoModelForTokenClassification.from_pretrained(
-            args.load).to(device)
-        metrics = compute_bio_metrics
-    else:
-        model = AutoModelForSequenceClassification.from_pretrained(
-            args.load).to(device)
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(args.load)
-    if args.is_multilabel:
-        metrics = compute_multilabel_metrics
+
+    if "NER" in args.task:
+        model_class = AutoModelForTokenClassification
+        # metrics = compute_bio_metrics
+        metrics = None # TODO: fix loading bio metrics, currently not working
     else:
-        metrics = compute_singlelabel_metrics    
-    trainer = Trainer(
-        model=model,
-        compute_metrics=metrics,
-        tokenizer=tokenizer)
-    return trainer
+        model_class = AutoModelForSequenceClassification
+        metrics = (
+            compute_multilabel_metrics
+            if getattr(args, "is_multilabel", False)
+            else compute_singlelabel_metrics
+        )
+
+    model = model_class.from_pretrained(args.load).to(device)
+    return Trainer(model=model, compute_metrics=metrics, tokenizer=tokenizer)
 
 
 def load_data(data_dir: str, meta_file: str, model_identifier: str) -> tuple[DataSplit, DataSplit, DataSplit]:
@@ -441,16 +440,17 @@ def predict_evaluate(project_folder: str, trainer: Trainer, test_dataset: Union[
         pred_labels_idx = np.argmax(predictions.predictions, axis=2)
 
         for true_l, pred_l, prob, data in zip(predictions.label_ids, pred_labels_idx, probs_incl_spec, test_dataset):
-            id_, tokens, _ = data
-            if not (len(true_l) == len(pred_l) == len(prob) == len(tokens)):
+            id_, tokens, _, word_ids = data
+            if not (len(true_l) == len(pred_l) == len(prob) == len(tokens) == len(word_ids)):
                 raise ValueError(
                     'Lengths of predictions, true labels and probabilities do not match')
             # iterate over tokens
-            for t, p, pr, token in zip(true_l, pred_l, prob, tokens):
+            for t, p, pr, token, w in zip(true_l, pred_l, prob, tokens, word_ids):
                 if t != -100:
                     pred_data.append({
                         "id": id_,
                         "token": token,
+                        "word_id": w,
                         # Get the human-readable label from the label index
                         "prediction": test_dataset.labels[p],
                         "probability": pr.tolist(),
@@ -600,7 +600,7 @@ def load_and_predict(args: argparse.Namespace) -> None:
     exp_path = os.path.dirname(args.load)
 
     # Case 1: Test split of training used
-    if args.data is None:
+    if args.data is None or os.path.isdir(args.data):
         data_meta_file = os.path.join(args.data, 'meta.json')
         dataset = load_data(
             args.data, data_meta_file, args.model)[1]
