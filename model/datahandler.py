@@ -202,16 +202,36 @@ class DataSplitBIO(DataSplit):
     BERT_NER_COL = 'bert_ner_tags'
 
     def __init__(self, split: pd.DataFrame, label2id: dict, tokenizer, max_len: int) -> None:
-        self.df = split
         self.max_len = max_len
         self.label2id = label2id
         self.id2label = {int(v): k for k, v in self.label2id.items()}
         self.tokenizer = tokenizer
         self.is_multilabel = False
-        
+
         # Convert string representations of lists to lists
-        self.df.loc[:, self.TOKEN_COL] = self.df[self.TOKEN_COL].apply(self.safe_literal_eval)
-        self.df.loc[:, self.NER_COL] = self.df[self.NER_COL].apply(self.safe_literal_eval)
+        split = split.copy()
+        split.loc[:, self.TOKEN_COL] = split[self.TOKEN_COL].apply(self.safe_literal_eval)
+        split.loc[:, self.NER_COL] = split[self.NER_COL].apply(self.safe_literal_eval)
+
+        # Chunk samples longer than max_len
+        chunked_rows = []
+        for idx, row in split.iterrows():
+            tokens = row[self.TOKEN_COL]
+            ner_tags = row[self.NER_COL]
+            sample_id = row[self.ID_COL]
+            num_chunks = (len(tokens) + max_len - 1) // max_len
+            for chunk_idx in range(num_chunks):
+                start = chunk_idx * max_len
+                end = start + max_len
+                chunk_tokens = tokens[start:end]
+                chunk_ner_tags = ner_tags[start:end]
+                chunked_rows.append({
+                    self.ID_COL: sample_id,
+                    'chunk_idx': chunk_idx,
+                    self.TOKEN_COL: chunk_tokens,
+                    self.NER_COL: chunk_ner_tags
+                })
+        self.df = pd.DataFrame(chunked_rows)
 
         # Make sure the ids of label2id are integers
         self.label2id = {k: int(v) for k, v in self.label2id.items()}
@@ -306,6 +326,7 @@ class DataSplitBIO(DataSplit):
         # Ensure the labels are the same length as max_len
         new_labels = new_labels + [-100] * (self.max_len - len(new_labels))
         return new_labels[:self.max_len]
+
             
 class DataHandlerBIO():
     TOKEN_COL = 'tokens'
@@ -1120,6 +1141,13 @@ def main():
     # dataHandler.save_split('./data/annotated_data/test_split')
     # my_second_datahandler = DataHandler()
     # my_second_datahandler.load_splits('./data/annotated_data/test_split')
+
+    bio_handler = DataHandlerBIO(
+        data_path='/home/vera/Documents/Arbeit/CRS/PsychNER/data/prepared_data/training_round2/ner_bio', model='scibert')
+
+    use_val = bio_handler.load_splits('/home/vera/Documents/Arbeit/CRS/PsychNER/data/prepared_data/training_round2/ner_bio')
+    train_dataset, test_dataset, eval_dataset = bio_handler.get_split(use_val=use_val)
+    breakpoint()
 
 
 if __name__ == '__main__':
