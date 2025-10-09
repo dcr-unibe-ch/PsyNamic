@@ -269,10 +269,11 @@ class DataSplitBIO(DataSplit):
         if self._index < len(self.df):
             id_ = self.df.iloc[self._index][self.ID_COL]
             bert_tokens = self.df.iloc[self._index][self.BERT_TOKEN_COL]
+            word_ids = self.df.iloc[self._index][self.WORD_IDS]
             # Convert word_ids to bert tokens (inclduding special tokens, padding and subwords)
             labels = self.df.iloc[self._index][self.BERT_NER_COL]
             self._index += 1
-            return id_, bert_tokens, labels
+            return id_, bert_tokens, labels, word_ids
         else:
             self._index = 0
             raise StopIteration
@@ -313,7 +314,7 @@ class DataHandlerBIO():
     ID_COL = 'id'
 
     def __init__(self, data_path: str, model: str = 'scibert') -> None:
-        self.model = MODEL_IDENTIFIER[model]
+        self.model = MODEL_IDENTIFIER[model] if model in MODEL_IDENTIFIER else model
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
 
         # if data_path is a file: read in the data
