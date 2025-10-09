@@ -208,31 +208,10 @@ class DataSplitBIO(DataSplit):
         self.tokenizer = tokenizer
         self.is_multilabel = False
 
-        # Convert string representations of lists to lists
         split = split.copy()
         split.loc[:, self.TOKEN_COL] = split[self.TOKEN_COL].apply(self.safe_literal_eval)
         split.loc[:, self.NER_COL] = split[self.NER_COL].apply(self.safe_literal_eval)
-
-        # Chunk samples longer than max_len
-        chunked_rows = []
-        for idx, row in split.iterrows():
-            tokens = row[self.TOKEN_COL]
-            ner_tags = row[self.NER_COL]
-            sample_id = row[self.ID_COL]
-            num_chunks = (len(tokens) + max_len - 1) // max_len
-            for chunk_idx in range(num_chunks):
-                start = chunk_idx * max_len
-                end = start + max_len
-                chunk_tokens = tokens[start:end]
-                chunk_ner_tags = ner_tags[start:end]
-                chunked_rows.append({
-                    self.ID_COL: sample_id,
-                    'chunk_idx': chunk_idx,
-                    self.TOKEN_COL: chunk_tokens,
-                    self.NER_COL: chunk_ner_tags
-                })
-        self.df = pd.DataFrame(chunked_rows)
-
+        self.df = split
         # Make sure the ids of label2id are integers
         self.label2id = {k: int(v) for k, v in self.label2id.items()}
 
@@ -246,30 +225,43 @@ class DataSplitBIO(DataSplit):
             return ast.literal_eval(x)
 
     def _encode_and_align(self) -> None:
-        def encode_and_align_row(row):
+        chunked_rows = []
+        for _, row in self.df.iterrows():
             tokens = row[self.TOKEN_COL]
             ner_tags = row[self.NER_COL]
-            
+            sample_id = row[self.ID_COL]
+
+            # Tokenize the whole sequence (no truncation)
             encoding = self.tokenizer(
                 tokens,
-                truncation=True,
-                padding='max_length',
-                max_length=self.max_len,
+                truncation=False,
                 is_split_into_words=True,
                 return_tensors='pt'
             )
-            bert_tokens = self.tokenizer.convert_ids_to_tokens(encoding['input_ids'][0])
+            input_ids = encoding['input_ids'][0].tolist()
             word_ids = encoding.word_ids(batch_index=0)
+            bert_tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
             labels_ids = [self.label2id[tag] for tag in ner_tags]
-            aligned_labels = self.align_labels_with_tokens(labels_ids, word_ids)
-            
-            return pd.Series({
-                self.BERT_TOKEN_COL: bert_tokens,
-                self.WORD_IDS: word_ids,
-                self.BERT_NER_COL: aligned_labels
-            })
 
-        self.df.loc[:, [self.BERT_TOKEN_COL, self.WORD_IDS, self.BERT_NER_COL]] = self.df.apply(encode_and_align_row, axis=1)
+            # Chunk the tokenized input which exceeds max_len
+            num_chunks = (len(input_ids) + self.max_len - 1) // self.max_len
+            for chunk_idx in range(num_chunks):
+                start = chunk_idx * self.max_len
+                end = start + self.max_len
+                chunk_word_ids = word_ids[start:end]
+                chunk_bert_tokens = bert_tokens[start:end]
+                aligned_labels = self.align_labels_with_tokens(labels_ids, chunk_word_ids)
+                chunked_rows.append({
+                    self.ID_COL: sample_id,
+                    'chunk_idx': chunk_idx,
+                    self.BERT_TOKEN_COL: chunk_bert_tokens,
+                    self.WORD_IDS: chunk_word_ids,
+                    self.BERT_NER_COL: aligned_labels,
+                    self.TOKEN_COL: tokens,  
+                    self.NER_COL: ner_tags 
+                })
+        self.df = pd.DataFrame(chunked_rows)
+
 
     def __getitem__(self, idx: int) -> dict:
         tokens = self.df.iloc[idx][self.TOKEN_COL]
