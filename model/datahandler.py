@@ -250,6 +250,9 @@ class DataSplitBIO(DataSplit):
                 end = start + self.max_len
                 chunk_word_ids = word_ids[start:end]
                 chunk_bert_tokens = bert_tokens[start:end]
+                chunk_token_indices = sorted({i for i in chunk_word_ids if i is not None})
+                chunk_tokens = [tokens[i] for i in chunk_token_indices]
+                chunk_ner_tags = [ner_tags[i] for i in chunk_token_indices]
                 aligned_labels = self.align_labels_with_tokens(labels_ids, chunk_word_ids)
                 chunked_rows.append({
                     self.ID_COL: sample_id,
@@ -257,8 +260,8 @@ class DataSplitBIO(DataSplit):
                     self.BERT_TOKEN_COL: chunk_bert_tokens,
                     self.WORD_IDS: chunk_word_ids,
                     self.BERT_NER_COL: aligned_labels,
-                    self.TOKEN_COL: tokens,  
-                    self.NER_COL: ner_tags 
+                    self.TOKEN_COL: chunk_tokens,  
+                    self.NER_COL: chunk_ner_tags 
                 })
         self.df = pd.DataFrame(chunked_rows)
 
@@ -1140,7 +1143,6 @@ def main():
 
     use_val = bio_handler.load_splits('/home/vera/Documents/Arbeit/CRS/PsychNER/data/prepared_data/training_round2/ner_bio')
     train_dataset, test_dataset, eval_dataset = bio_handler.get_split(use_val=use_val)
-    breakpoint()
 
 
 if __name__ == '__main__':

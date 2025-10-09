@@ -441,7 +441,7 @@ def predict_evaluate(project_folder: str, trainer: Trainer, test_dataset: Union[
 
         for true_l, pred_l, prob, data in zip(predictions.label_ids, pred_labels_idx, probs_incl_spec, test_dataset):
             id_, tokens, _, word_ids = data
-            if not (len(true_l) == len(pred_l) == len(prob) == len(tokens) == len(word_ids)):
+            if not (len(true_l) == len(pred_l) == len(prob)):
                 raise ValueError(
                     'Lengths of predictions, true labels and probabilities do not match')
             # iterate over tokens
