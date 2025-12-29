@@ -414,60 +414,36 @@ def train(
     return trainer
 
 
-def predict_evaluate(project_folder: str, trainer: Trainer, test_dataset: Union[DataSplit, DataSplitBIO], outfile: str = None, threshold: float = 0.5, metrics: bool=True) -> tuple[str, Union[str, None]]:
-    """ Predicts the labels for the test split or any other dataset and saves predictions and metrics to a file.
-        In case its only prediction and true labels are not provided, only the predictions will be saved.
-
-    Args:
-        project_folder (str): Path in which the checkpoints, params.json and predictions.csv will be saved.
-        trainer (Trainer): Trainer object with the trained model.
-        test_dataset (DataSplit): Test dataset to predict on.
-        outfile (str, optional): Name of the output file. Defaults to predictions.csv in project_folder.
-        threshold (float, optional): Threshold for multilabel classification. Defaults to 0.1.
-
-    Returns:
-        str: outfile path
-    """
+def predict(project_folder: str, trainer: Trainer, test_dataset: Union[DataSplit, DataSplitBIO], outfile: str = None, threshold: float = 0.5) -> str:
+    """Predicts the labels for the test split or any other dataset and saves predictions to a file."""
     predictions = trainer.predict(test_dataset)
-    report_df = None
-
-    # Collect prediction, probability and true labels
     pred_data = []
 
-    # NER --> token level classifciation
+    # NER --> token level classification
     if isinstance(test_dataset, DataSplitBIO):
-        probs_incl_spec = F.softmax(
-            torch.Tensor(predictions.predictions), dim=2)
+        probs_incl_spec = F.softmax(torch.Tensor(predictions.predictions), dim=2)
         pred_labels_idx = np.argmax(predictions.predictions, axis=2)
 
         for true_l, pred_l, prob, data in zip(predictions.label_ids, pred_labels_idx, probs_incl_spec, test_dataset):
             id_, tokens, _ = data
             if not (len(true_l) == len(pred_l) == len(prob) == len(tokens)):
-                raise ValueError(
-                    'Lengths of predictions, true labels and probabilities do not match')
-            # iterate over tokens
+                raise ValueError('Lengths of predictions, true labels and probabilities do not match')
             for t, p, pr, token in zip(true_l, pred_l, prob, tokens):
                 if t != -100:
                     pred_data.append({
                         "id": id_,
                         "token": token,
-                        # Get the human-readable label from the label index
                         "prediction": test_dataset.labels[p],
                         "probability": pr.tolist(),
-                        # True label for the token
                         "label": test_dataset.labels[t]
                     })
-
-    # Abstract classification
     else:
-        # Case 1: Multilabel classification
-        if test_dataset.is_multilabel:
+        # Multilabel classification
+        if getattr(test_dataset, 'is_multilabel', False):
             probs = F.sigmoid(torch.Tensor(predictions.predictions))
             true_labels = predictions.label_ids
             pred_labels = np.zeros(probs.shape)
             pred_labels[np.where(probs >= threshold)] = 1
-
-        # Case 2: Single-label classification
         else:
             true_labels = predictions.label_ids
             logits = torch.Tensor(predictions.predictions)
@@ -478,54 +454,42 @@ def predict_evaluate(project_folder: str, trainer: Trainer, test_dataset: Union[
                 probs = F.softmax(logits, dim=1).numpy()
                 pred_labels = np.argmax(probs, axis=1)
 
-
-            # Case 1: True labels are provided
-            if metrics:
-                report_df = classification_report_with_ci(
-                    true_labels, pred_labels)
-
-        # Case 1: True labels are provided
         if predictions.label_ids is not None:
-            for d, pred_labels, true_labels, prob in zip(test_dataset, pred_labels, true_labels, probs):
+            for d, pred_label, true_label, prob in zip(test_dataset, pred_labels, true_labels, probs):
                 id_, text, _ = d
                 pred_data.append({
                     "id": id_,
                     "text": text,
-                    "prediction": pred_labels.tolist(),
-                    "probability": prob.tolist(),
-                    "label": true_labels.tolist()
+                    "prediction": pred_label.tolist() if hasattr(pred_label, 'tolist') else pred_label,
+                    "probability": prob.tolist() if hasattr(prob, 'tolist') else prob,
+                    "label": true_label.tolist() if hasattr(true_label, 'tolist') else true_label
                 })
-        # Case 2: Not True labels are provided -> only prediction
         else:
-            for d, pred_labels, prob in zip(test_dataset, pred_labels, probs):
+            for d, pred_label, prob in zip(test_dataset, pred_labels, probs):
                 id_, text, _ = d
                 pred_data.append({
                     "id": id_,
                     "text": text,
-                    "prediction": pred_labels.tolist(),
-                    "probability": prob.tolist(),
+                    "prediction": pred_label.tolist() if hasattr(pred_label, 'tolist') else pred_label,
+                    "probability": prob.tolist() if hasattr(prob, 'tolist') else prob,
                 })
 
     df = pd.DataFrame(pred_data)
     filename = 'test_predictions.csv' if outfile is None else f'{outfile}_predictions.csv'
     pred_file = os.path.join(project_folder, filename)
     df.to_csv(pred_file, index=False)
+    return pred_file
 
-    # If true labels are provided and metrics are computed, write metrics to file
-    if metrics:
-        filename = 'test_eval.csv' if outfile is None else f'{outfile}_eval.csv'
-        eval_file = os.path.join(project_folder, filename)
-        # Write metrics to file
-        with open(eval_file, 'w', encoding='utf-8') as f:
-            json.dump(metrics, f)
-            if report_df is not None:
-                # append classification report dataframe to metrics.json, convert to dict
-                report_dict = report_df.to_dict()
-                json.dump(report_dict, f)
-
-    else:
-        eval_file = None
-    return pred_file, eval_file
+def evaluate(project_folder: str, true_labels, pred_labels, outfile: str = None) -> str:
+    """Evaluates predictions and saves metrics to a file."""
+    report_df = classification_report_with_ci(true_labels, pred_labels)
+    filename = 'test_eval.csv' if outfile is None else f'{outfile}_eval.csv'
+    eval_file = os.path.join(project_folder, filename)
+    with open(eval_file, 'w', encoding='utf-8') as f:
+        # Save the classification report as dict
+        report_dict = report_df.to_dict()
+        json.dump(report_dict, f)
+    return eval_file
 
 ############################################################################################################
 # 4 MODES: train, cont_train, eval, pred
@@ -552,7 +516,24 @@ def finetune(args: argparse.Namespace) -> None:
     save_train_args(project_path, args, add_params)
     trainer = train(project_path, train_dataset,
                     args, val_dataset=val_dataset, is_multilabel=meta_data['Is_multilabel'])
-    predict_evaluate(project_path, trainer, test_dataset)
+    pred_file = predict(project_path, trainer, test_dataset)
+    # Evaluate if true labels are available
+    predictions = trainer.predict(test_dataset)
+    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
+        true_labels = predictions.label_ids
+        probs = F.sigmoid(torch.Tensor(predictions.predictions))
+        pred_labels = np.zeros(probs.shape)
+        pred_labels[np.where(probs >= 0.5)] = 1
+    else:
+        true_labels = predictions.label_ids
+        logits = torch.Tensor(predictions.predictions)
+        if logits.ndim == 1:
+            probs = F.softmax(logits, dim=0).numpy()
+            pred_labels = np.argmax(probs)
+        else:
+            probs = F.softmax(logits, dim=1).numpy()
+            pred_labels = np.argmax(probs, axis=1)
+    evaluate(project_path, true_labels, pred_labels)
 
 
 def cont_finetune(args: argparse.Namespace) -> None:
@@ -566,7 +547,23 @@ def cont_finetune(args: argparse.Namespace) -> None:
         args.data, meta_file, args.model)
     trainer = train(args.load, train_dataset,
                     args, resume_from_checkpoint=True, is_multilabel=meta_data['Is_multilabel'])
-    predict_evaluate(args.load, trainer, test_dataset)
+    pred_file = predict(args.load, trainer, test_dataset)
+    predictions = trainer.predict(test_dataset)
+    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
+        true_labels = predictions.label_ids
+        probs = F.sigmoid(torch.Tensor(predictions.predictions))
+        pred_labels = np.zeros(probs.shape)
+        pred_labels[np.where(probs >= 0.5)] = 1
+    else:
+        true_labels = predictions.label_ids
+        logits = torch.Tensor(predictions.predictions)
+        if logits.ndim == 1:
+            probs = F.softmax(logits, dim=0).numpy()
+            pred_labels = np.argmax(probs)
+        else:
+            probs = F.softmax(logits, dim=1).numpy()
+            pred_labels = np.argmax(probs, axis=1)
+    evaluate(args.load, true_labels, pred_labels)
 
 
 def load_and_evaluate(args: argparse.Namespace) -> str:
@@ -583,7 +580,23 @@ def load_and_evaluate(args: argparse.Namespace) -> str:
     test_dataset = load_data(
         args.data, data_meta_file, args.model)[1]
     
-    predict_evaluate(exp_path, trainer, test_dataset, outfile=args.outfile)
+    pred_file = predict(exp_path, trainer, test_dataset, outfile=args.outfile)
+    predictions = trainer.predict(test_dataset)
+    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
+        true_labels = predictions.label_ids
+        probs = F.sigmoid(torch.Tensor(predictions.predictions))
+        pred_labels = np.zeros(probs.shape)
+        pred_labels[np.where(probs >= 0.5)] = 1
+    else:
+        true_labels = predictions.label_ids
+        logits = torch.Tensor(predictions.predictions)
+        if logits.ndim == 1:
+            probs = F.softmax(logits, dim=0).numpy()
+            pred_labels = np.argmax(probs)
+        else:
+            probs = F.softmax(logits, dim=1).numpy()
+            pred_labels = np.argmax(probs, axis=1)
+    evaluate(exp_path, true_labels, pred_labels, outfile=args.outfile)
 
 
 def load_and_predict(args: argparse.Namespace) -> None:
@@ -608,7 +621,7 @@ def load_and_predict(args: argparse.Namespace) -> None:
             outfile_name = f'{os.path.basename(args.load)}_test_split'
         else:
             outfile_name = args.outfile
-        outfile = predict_evaluate(exp_path, trainer, dataset, outfile_name, threshold=args.threshold, metrics=False)
+        pred_file = predict(exp_path, trainer, dataset, outfile_name, threshold=args.threshold)
     else:
         if os.path.isfile(args.data):
             data = args.data
@@ -622,9 +635,8 @@ def load_and_predict(args: argparse.Namespace) -> None:
         else:
             outfile_name = args.outfile
 
-        outfile = predict_evaluate(exp_path, trainer, dataset, outfile_name, threshold=args.threshold, metrics=False)
-    
-    return outfile
+        pred_file = predict(exp_path, trainer, dataset, outfile_name, threshold=args.threshold)
+    return pred_file
 
 
 def main():
@@ -649,6 +661,7 @@ def main():
             print('Defaulting to test data split used for training')
 
         load_and_evaluate(args)
+    
     elif args.mode == 'pred':
         if args.load is None or not os.path.exists(args.load):
             raise ValueError(
