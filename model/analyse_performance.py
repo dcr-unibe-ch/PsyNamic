@@ -2,13 +2,15 @@ import os
 import json
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
 import pandas as pd
 import numpy as np
 from confidenceinterval.bootstrap import bootstrap_ci
 from sklearn.metrics import (
     accuracy_score, f1_score, precision_score, recall_score, precision_recall_curve)
 import math
-
+sns.set(style="whitegrid")
 
 EXPERIMENTS_PATH = "/home/vebern/data/PsyNamic/model/experiments"
 DATE_PREFIX = "202502"  # Match folders with this prefix
@@ -16,6 +18,12 @@ TASKS = [
     "Data Collection", "Data Type", "Number of Participants", "Age of Participants", "Application Form",
     "Clinical Trial Phase", "Condition", "Outcomes", "Regimen", "Setting", "Study Control", "Study Purpose",
     "Substance Naivety", "Substances", "Sex of Participants", "Study Conclusion", "Study Type", "Relevant"
+]
+
+NER_TASKS = [
+    "NER",
+    "Dosage",
+    "Application Area"
 ]
 
 MODEL_COLORS = {
@@ -524,52 +532,153 @@ def plot_best_f1_scores(directory):
 
     plt.show()
 
+
+def bar_plot_with_ci(data: pd.DataFrame, x_col: str, y_col: str, title: str, save_path: str, exclude_tasks: list[str] = ['NER']):
+    # Remove excluded tasks
+    data = data[~data['task'].isin(exclude_tasks)]
+
+    # Sort by F1 score for better visualization
+    df_tasks = data.sort_values(by=y_col, ascending=False).reset_index(drop=True)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Bar plot without built-in error bars
+    sns.barplot(
+        x=x_col,
+        y=y_col,
+        hue="model",
+        data=df_tasks,
+        palette=MODEL_COLORS,
+        ax=ax,
+        legend=False,
+        errorbar=None
+    )
+
+    # Add hatches to NER tasks
+    ner_task_names = [task.lower() for task in NER_TASKS]
+    for bar in ax.patches:
+        task_name = df_tasks.iloc[int(bar.get_x() + bar.get_width() / 2)]['task'].lower()
+        if task_name in ner_task_names:
+            bar.set_hatch('//')
+
+    # Add error bars manually
+    for index, row in df_tasks.iterrows():
+        yerr_lower = row[y_col] - row["ci_lower"]
+        yerr_upper = row["ci_upper"] - row[y_col]
+        ax.errorbar(index, row[y_col],
+                    yerr=[[yerr_lower], [yerr_upper]],
+                    fmt='none', color='black', capsize=5)
+
+        # Display values
+        ax.text(index, 0.02,
+            f"{row[y_col]:.2f}", ha="center", va="bottom", color="black", fontsize=8)
+
+        ax.text(index, row["ci_lower"] - 0.04,
+                f"{row['ci_lower']:.2f}", ha="center", va="bottom", color="black", fontsize=8)
+
+        ax.text(index, row["ci_upper"] + 0.01,
+                f"{row['ci_upper']:.2f}", ha="center", va="bottom", color="black", fontsize=8)
+        
+    model_handles = [
+        mpatches.Patch(color=color, label=model)
+        for model, color in MODEL_COLORS.items()
+    ]
+
+    task_handles = [
+        mpatches.Patch(facecolor='gray', label='Abstract Level'),
+        mpatches.Patch(facecolor='gray', hatch='//', label='Token Level')
+    ]
+
+    header_model = Line2D([], [], linestyle='none', label='Model')
+    header_task = Line2D([], [], linestyle='none', label='Variable Level')
+    spacer = Line2D([], [], linestyle='none', label='')
+
+    handles = (
+        [header_model] + model_handles +
+        [spacer] +  # <-- adds vertical space
+        [header_task] + task_handles
+    )
+
+    legend = ax.legend(
+        handles=handles,
+        loc="upper left",
+        bbox_to_anchor=(1, 1),
+        frameon=True,
+        handlelength=1.5
+    )
+
+    # Make headers bold
+    for text in legend.get_texts():
+        if text.get_text() in ['Model', 'Variable Level']:
+            text.set_weight('bold')
+        # Add some padding at bottom so labels are not cut off
+        plt.gcf().subplots_adjust(bottom=0.2)
+
+    # Formatting
+    ax.set_ylabel(f"Best F1 Score")
+    ax.set_xlabel("Variable")
+    ax.set_title(title)
+    ax.set_xticks(np.arange(len(df_tasks)))
+    ax.set_xticklabels(df_tasks[x_col], rotation=45, ha="right")
+    ax.set_ylim(0, 1)
+
+    if save_path:
+        plt.savefig(save_path, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+
 def main():
-    plot_best_f1_scores('/home/vebern/data/PsyNamic/model')
-    save_dir = "model/performance_plots"
-    task_model_performance = collect_metrics_all_tasks()
-    plot_model_metric_all_tasks(task_model_performance,
-                                metrics=["F1", "Accuracy",
-                                         "Precision", "Recall"],
-                                save_dir=save_dir)
-    # NOTE: precision-recall curves is outdated, as study type and study conclusion are no longer multilabel
-    # best_models = plot_precision_recall_curve_all_tasks(
-    #     task_model_performance, save_dir=save_dir)
-    for task in TASKS:
-        task_key = task.lower().replace(" ", "_")
-        df = pd.read_csv(os.path.join(
-            os.path.dirname(EXPERIMENTS_PATH), f"model_performance_{task_key}.csv"))
-        best_model = df.loc[df['F1'] == df['F1'].max()]['Model'].values
-        if len(best_model) > 1:
-            print(
-                f"\nMultiple models have the highest F1 score for task: {task}")
-        else:
-            best_model = best_model[0]
-        print(best_model)
-        # best_model = best_models[task_key]
-        model_path = find_model_path(task_key, best_model)
-        test_pred_file = os.path.join(
-            EXPERIMENTS_PATH, model_path, "test_predictions.csv")
-        checkpoints = [file for file in os.listdir(os.path.join(
-            EXPERIMENTS_PATH, model_path)) if 'checkpoint' in file]
+    # plot_best_f1_scores('./model')
+    save_dir = "/mnt/c/Users/vb25l522/Documents/PsyNamic/model/performance_plots"
+    f1_data = pd.read_csv('/mnt/c/Users/vb25l522/Documents/PsyNamic/model/evaluation/best_f1_scores.csv')
+    bar_plot_with_ci(f1_data, 'task', 'f1_score', 'Best F1 Score per Variable', os.path.join(save_dir, 'best_f1_scores_per_task.png'))
 
-        config_file = os.path.join(
-            EXPERIMENTS_PATH, model_path, checkpoints[0], "config.json")
-        label_mapping = load_label_mapping(config_file)
-        params_file = os.path.join(
-            os.path.dirname(test_pred_file), "params.json")
-        with open(params_file, "r", encoding="utf-8") as f:
-            params = json.load(f)
-            is_multilabel = params.get("is_multilabel", True)
-        # Extract predictions
-        y_true, y_pred, _ = extract_predictions(test_pred_file, is_multilabel)
+    # task_model_performance = collect_metrics_all_tasks()
+    # plot_model_metric_all_tasks(task_model_performance,
+    #                             metrics=["F1", "Accuracy",
+    #                                      "Precision", "Recall"],
+    #                             save_dir=save_dir)
+    # # NOTE: precision-recall curves is outdated, as study type and study conclusion are no longer multilabel
+    # # best_models = plot_precision_recall_curve_all_tasks(
+    # #     task_model_performance, save_dir=save_dir)
+    # for task in TASKS:
+    #     task_key = task.lower().replace(" ", "_")
+    #     df = pd.read_csv(os.path.join(
+    #         os.path.dirname(EXPERIMENTS_PATH), f"model_performance_{task_key}.csv"))
+    #     best_model = df.loc[df['F1'] == df['F1'].max()]['Model'].values
+    #     if len(best_model) > 1:
+    #         print(
+    #             f"\nMultiple models have the highest F1 score for task: {task}")
+    #     else:
+    #         best_model = best_model[0]
+    #     print(best_model)
+    #     # best_model = best_models[task_key]
+    #     model_path = find_model_path(task_key, best_model)
+    #     test_pred_file = os.path.join(
+    #         EXPERIMENTS_PATH, model_path, "test_predictions.csv")
+    #     checkpoints = [file for file in os.listdir(os.path.join(
+    #         EXPERIMENTS_PATH, model_path)) if 'checkpoint' in file]
 
-        # Generate per-label performance plots
-        plot_path = os.path.join(save_dir, f"performance_{task_key}.png")
-        plot_performance_per_label(
-            y_true, y_pred, label_mapping, plot_path, task, best_model)
+    #     config_file = os.path.join(
+    #         EXPERIMENTS_PATH, model_path, checkpoints[0], "config.json")
+    #     label_mapping = load_label_mapping(config_file)
+    #     params_file = os.path.join(
+    #         os.path.dirname(test_pred_file), "params.json")
+    #     with open(params_file, "r", encoding="utf-8") as f:
+    #         params = json.load(f)
+    #         is_multilabel = params.get("is_multilabel", True)
+    #     # Extract predictions
+    #     y_true, y_pred, _ = extract_predictions(test_pred_file, is_multilabel)
 
-        print(f"Saved per-label performance plot for {task}: {plot_path}")
+    #     # Generate per-label performance plots
+    #     plot_path = os.path.join(save_dir, f"performance_{task_key}.png")
+    #     plot_performance_per_label(
+    #         y_true, y_pred, label_mapping, plot_path, task, best_model)
+
+    #     print(f"Saved per-label performance plot for {task}: {plot_path}")
 
 
 if __name__ == "__main__":
