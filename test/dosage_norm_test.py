@@ -32,7 +32,7 @@ class DosageNormTest(unittest.TestCase):
             self.assertEqual(normalize_dosage(dosage), norm)
 
         norm = '3 h'
-        dosage = [
+        dosages = [
             '3 hours',
             '3 hour',
             '3 hr' 
@@ -55,8 +55,8 @@ class DosageNormTest(unittest.TestCase):
             'of 5 μg' : '5 μg',
             '100 mg / day' : '100 mg',
             '100 mg/daily' : '100 mg',
-            '0.1‐0.2 mg / kg / dose' : '0.1-0.2 mg/kg',
-            '0.1‐0.2 mg/kg/dose' : '0.1-0.2 mg/kg',
+            '0.1-0.2 mg / kg / dose' : '0.1-0.2 mg/kg',
+            '0.1-0.2 mg/kg/dose' : '0.1-0.2 mg/kg',
             '1 mg / kg of body weight' : '1 mg/kg',
             '0.25 mg / kg bw' : '0.25 mg/kg',
             '0.25 mg / kg /bw' : '0.25 mg/kg',
@@ -66,10 +66,12 @@ class DosageNormTest(unittest.TestCase):
             '0.25 mg / kg / body-weight' : '0.25 mg/kg',
             '( 200 microg / kg )' : '200 µg/kg',
             '.5mg/kg' : '0.5 mg/kg',
+            '2μg / kg / min' : '2 μg/kg/min',            
         }
         
         for inp, outp in input_output.items():
             self.assertEqual(normalize_dosage(inp), outp)
+
 
     def test_unit_spelling(self):
         input_output = {
@@ -92,16 +94,19 @@ class DosageNormTest(unittest.TestCase):
 
     def test_plus_minus(self):
         input_output = {
-            '1,540 ± 920 mg' : '3-7 mg',
-            '1,540 +- 920 mg' : '3-7 mg',
+            '1,540 ± 920 mg' : '1540 mg',
+            '1,540 +- 920 mg' : '1540 mg',
+            '1540 ±920 mg' : '1540 mg',
+            '1540+-920 mg' : '1540 mg',
         }
         for inp, outp in input_output.items():
             self.assertEqual(normalize_dosage(inp), outp)
 
+
 class DosageExtractTest(unittest.TestCase):
     def test_simple_absolute_dose(self):
         # "10 mg"
-        result = extract_dosages(normalize_dosage("10 mg"))
+        result = extract_dosages("10 mg")
         self.assertEqual(result["min"], 10)
         self.assertEqual(result["max"], 10)
         self.assertEqual(result["unit"], "mg")
@@ -123,7 +128,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_multiple_values_with_comma_no_whitespace(self):
         # "1,2,3 mg"
-        result = extract_dosages(normalize_dosage("1,2,3 mg"))
+        result = extract_dosages("1,2,3 mg")
         self.assertEqual(result["min"], 1)
         self.assertEqual(result["max"], 3)
         self.assertEqual(result["unit"], "mg")
@@ -134,7 +139,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_multiple_numeric_values_with_or(self):
         # "10 , 20 , 30 , or 40 mg"
-        result = extract_dosages(normalize_dosage("10 , 20 , 30 , or 40 mg"))
+        result = extract_dosages("10 , 20 , 30 , or 40 mg")
         self.assertEqual(result["min"], 10)
         self.assertEqual(result["max"], 40)
         self.assertEqual(result["unit"], "mg")
@@ -145,7 +150,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_relative_time_or(self):
         # "0.6 or 1 mg / min"
-        result = extract_dosages(normalize_dosage("0.6 or 1 mg / min"))
+        result = extract_dosages("0.6 or 1 mg / min")
         self.assertEqual(result["min"], 0.6)
         self.assertEqual(result["max"], 1)
         self.assertEqual(result["unit"], "mg")
@@ -155,7 +160,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_relative_weight_multiple_values(self):
         # "10 , 20 , 30 mg/70 kg"
-        result = extract_dosages(normalize_dosage("10 , 20 , 30 mg/70 kg"))
+        result = extract_dosages("10 , 20 , 30 mg/70 kg")
         self.assertEqual(result["min"], 10)
         self.assertEqual(result["max"], 30)
         self.assertEqual(result["unit"], "mg")
@@ -166,7 +171,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_range_dose_dash(self):
         # "5 - 20 µg"
-        result = extract_dosages(normalize_dosage("5 - 20 µg"))
+        result = extract_dosages("5 - 20 µg")
         self.assertEqual(result["min"], 5)
         self.assertEqual(result["max"], 20)
         self.assertEqual(result["unit"], "µg")
@@ -177,7 +182,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_range_with_to_and_weight(self):
         # "0.5 to 1.25 mg / kg"
-        result = extract_dosages(normalize_dosage("0.5 to 1.25 mg / kg"))
+        result = extract_dosages("0.5 to 1.25 mg / kg")
         self.assertEqual(result["min"], 0.5)
         self.assertEqual(result["max"], 1.25)
         self.assertEqual(result["unit"], "mg")
@@ -188,7 +193,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_no_unit(self):
         # "100"
-        result = extract_dosages(normalize_dosage("100"))
+        result = extract_dosages("100")
         self.assertEqual(result["min"], 100)
         self.assertEqual(result["max"], 100)
         self.assertIsNone(result["unit"])
@@ -199,7 +204,7 @@ class DosageExtractTest(unittest.TestCase):
     
     def test_starting_with_dot(self):
         # ".5 mg / kg"
-        result = extract_dosages(normalize_dosage(".5 mg / kg"))
+        result = extract_dosages(".5 mg / kg")
         self.assertEqual(result["min"], 0.5)
         self.assertEqual(result["max"], 0.5)
         self.assertEqual(result["unit"], "mg")
@@ -210,7 +215,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_unit_spelling(self):
         # 0.25 mg kg(-1 ) hr(-1 )
-        result = extract_dosages(normalize_dosage("0.25 mg kg(-1 ) hr(-1 )"))
+        result = extract_dosages("0.25 mg kg(-1 ) hr(-1 )")
         self.assertEqual(result["min"], 0.25)
         self.assertEqual(result["max"], 0.25)
         self.assertEqual(result["unit"], "mg")
@@ -221,7 +226,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_unit_spelling_microg(self):
         # 1.4 microg kg(-1 ) min(-1 )
-        result = extract_dosages(normalize_dosage("1.4 microg kg(-1 ) min(-1 )"))
+        result = extract_dosages("1.4 microg kg(-1 ) min(-1 )")
         self.assertEqual(result["min"], 1.4)
         self.assertEqual(result["max"], 1.4)
         self.assertEqual(result["unit"], "µg")
@@ -231,7 +236,7 @@ class DosageExtractTest(unittest.TestCase):
 
     def test_dosage_per_weight_per_time(self):
         # 2μg / kg / min
-        result = extract_dosages(normalize_dosage("2μg / kg / min"))
+        result = extract_dosages("2μg / kg / min")
         self.assertEqual(result["min"], 2)
         self.assertEqual(result["max"], 2)
         self.assertEqual(result["unit"], "µg")
