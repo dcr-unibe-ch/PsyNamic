@@ -106,9 +106,10 @@ def extract_dosages(dosage: str) -> dict[str, str]:
             dosage_dict["unit"] = unit
 
     # \sor\s or \sand\s in dosage or comma separated numbers
-    if re.search(r"\sor\s|\sand\s", dosage) or re.search(r",", dosage):
+    if re.search(r"\sor\s|\sand\s|\d\s?[-‐]\s?\d", dosage) or re.search(r",", dosage):
+        dosage_without_units = dosage.split(unit)[0]
         # get first and last digit
-        numbers = re.findall(r"[\d.]+", dosage)
+        numbers = re.findall(r"[\d.]+", dosage_without_units)
         if len(numbers) >= 2:
             min = numbers[0]
             max = numbers[-1]
@@ -127,9 +128,15 @@ def extract_dosages(dosage: str) -> dict[str, str]:
             raise ValueError(f"Could not extract dosage from: {dosage}")
         
     # if /kg or /h in dosage -> relative dose
-    if re.search(r"/kg", dosage):
+    if re.search(r"/[\s\d]*kg", dosage):
+        # if digit before kg, use it as weight reference
         dosage_dict["per_weight_unit"] = "kg"
-        dosage_dict["weight_reference"] = 1
+        weight_ref_match = re.search(r"/\s*(\d+(\.\d+)?)\s*kg", dosage)
+        if weight_ref_match:           
+            dosage_dict["weight_reference"] = float(weight_ref_match.group(1))
+        else:
+            dosage_dict["weight_reference"] = 1
+
         if re.search(r"/h|/min", dosage):
             time_unit_match = re.search(r"/(h|min)", dosage)
             if time_unit_match:
