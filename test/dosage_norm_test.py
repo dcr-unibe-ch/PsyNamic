@@ -239,7 +239,29 @@ class DosageExtractTest(unittest.TestCase):
         result = extract_dosages("2μg / kg / min")
         self.assertEqual(result["min"], 2)
         self.assertEqual(result["max"], 2)
-        self.assertEqual(result["unit"], "µg")
+        self.assertEqual(result["unit"], "μg")
         self.assertEqual(result["per_weight_unit"], "kg")
         self.assertEqual(result["weight_reference"], 1)
-        self.assertEqual(result["per_time_unit"], "min")    
+        self.assertEqual(result["per_time_unit"], "min")   
+
+    def test_range_with_weight_and_dose(self):
+        # 0.1‐0.2 mg / kg / dose
+        result = extract_dosages("0.1‐0.2 mg / kg / dose")
+        self.assertEqual(result["min"], 0.1)
+        self.assertEqual(result["max"], 0.2)
+        self.assertEqual(result["unit"], "mg")
+        self.assertEqual(result["per_weight_unit"], "kg")
+        self.assertEqual(result["weight_reference"], 1)
+        self.assertIsNone(result["per_time_unit"])
+        self.assertEqual(result["dose_type"], "relative_weight")
+
+    def test_range_dash(self):
+        # 5 - 20 µg
+        result = extract_dosages("5 - 20 µg")
+        self.assertEqual(result["min"], 5)
+        self.assertEqual(result["max"], 20)
+        self.assertEqual(result["unit"], "µg")
+        self.assertIsNone(result["per_weight_unit"])
+        self.assertIsNone(result["weight_reference"])
+        self.assertIsNone(result["per_time_unit"])
+        self.assertEqual(result["dose_type"], "absolute")   
