@@ -76,7 +76,6 @@ def normalize_dosage(dosage: str) -> str:
     
     return dosage
 
-
 def extract_dosages(dosage: str) -> dict[str, str]:
     """Extract quantity and unit from a dosage string."""
     dosage = normalize_dosage(dosage)
@@ -154,6 +153,3 @@ def extract_dosages(dosage: str) -> dict[str, str]:
         dosage_dict["dose_type"] = "absolute"
             
     return dosage_dict
-
-def check_number(s: str) -> bool:
-    """Check if the string contains only numbers or a dot."""
