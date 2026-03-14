@@ -1,5 +1,5 @@
 from data.prodigy_data_reader import ProdigyDataCollector, FIXED_COLUMNS
-from datahandler import PsyNamicSingleLabel, PsychNamicRelevant, PsyNamicMultiLabel, DataHandlerBIO
+from model.datahandler import PsyNamicSingleLabel, PsychNamicRelevant, PsyNamicMultiLabel, DataHandlerBIO
 import os
 import time
 import json
@@ -333,8 +333,9 @@ if __name__ == '__main__':
     with open('data/prepared_data/round1_ids.txt', 'w', encoding='utf-8') as f:
         for id in sorted(prodigy_data.ids):
             f.write(str(id)+'\n')
-    outfile = os.path.join(round1, 'psychedelic_study_all.csv')
-    outfile_relevant = os.path.join(round1, 'psychedelic_study_relevant.csv')
+    outfile = os.path.join(os.path.dirname(round1), 'psychedelic_study_all.csv')
+    outfile_relevant = os.path.join(os.path.dirname(round1), 'psychedelic_study_relevant.csv')
+
     prepare_all(outfile, outfile_relevant, prodigy_data)
     prepare_train_data(prodigy_data, outpath=round1)
     prepare_splits(round1, outfile)
