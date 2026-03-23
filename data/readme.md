@@ -25,14 +25,14 @@ prepared_data/
     data for model training, after annotation
     * psychedelic_study_all.csv
         * 5642 records
-        * 3312 includes (=about psychedlic substances)
-            -> -24 previously included but classified as excluded during annotation
+        * 3313 includes (=about psychedlic substances)
+            -> -23 previously included but classified as excluded during annotation
         * 2330 excludes (=not about psychedlic substances) 
             -> -64 removed due to missing abstracts
-            -> +24 previously included but classified as excluded during annotation
+            -> +23 previously included but classified as excluded during annotation
 
 
     * psychedelic_study_relevant.csv
-        * 3312 records
+        * 3313 records
         * only included studies
 
