@@ -37,8 +37,8 @@ def first_round_iaa():
 def second_round_iaa():
     # Second round of IAA as of 04.05 session
     files = [
-        'data/prodigy_exports/prodigy_export_iaa_ben_40_20240523_20240604_094449.jsonl',
-        'data/prodigy_exports/prodigy_export_iaa_pia_40_20240523_20240601_155420.jsonl'
+        'data/iaa/iaa_round2_40/iaa_annotation/prodigy_export_iaa_ben_40_20240523_20240604_094449_reordered.jsonl',
+        'data/iaa/iaa_round2_40/iaa_annotation/prodigy_export_iaa_pia_40_20240523_20240601_155420_reordered.jsonl'
 
     ]
     names = ['ben', 'pia']
@@ -48,7 +48,6 @@ def second_round_iaa():
 def main():
     first_round_iaa()
     second_round_iaa()
-
 
 if __name__ == '__main__':
     main()

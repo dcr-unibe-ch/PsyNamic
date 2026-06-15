@@ -1,0 +1,13 @@
+Log file for IAA calculations
+Created at 2026-06-15 20:58:39
+Datafiles used:
+data/prodigy_exports/prodigy_export_ben_100_20240418_20240423_075953.jsonl (student)
+data/prodigy_exports/prodigy_export_julia_110_20240423_113435_20240812_012727.jsonl (student)
+data/prodigy_exports/prodigy_export_bernard_52_20240423_113436_20240713_171907.jsonl (student)
+data/prodigy_exports/prodigy_export_ben_95_20240423_113434.jsonl (student)
+data/prodigy_exports/prodigy_export_ben_24_20240425_152801_reordered.jsonl (student)
+data/prodigy_exports/prodigy_export_pia_250_20240423_113437_20240720_135743.jsonl (student)
+data/prodigy_exports/prodigy_export_ben_582_double_annot_review_token_20240812_20241203_193705_token_corrected.jsonl (ben)
+data/prodigy_exports/prodigy_export_ben_582_double_annot_review_text_20240812_20241129_105310.jsonl (ben)
+Agreed rejected: set()
+Not agreed rejected: {5635, 5895, 6664, 5514, 3722, 8977, 148, 7961, 3866, 1953, 1058, 4129, 1957, 293, 7591, 809, 2859, 4524, 687, 5936, 9010, 8508, 4031, 1600, 7876, 7110, 1736, 4188, 2269, 734, 7264, 2026, 9083, 7164}
