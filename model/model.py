@@ -1,5 +1,7 @@
 import argparse
 import json
+import logging
+import math
 import os
 from ast import literal_eval
 from datetime import datetime
@@ -187,11 +189,11 @@ def init_argparse():
     parser.add_argument('--learning_rate', type=float, default=5e-5)
     parser.add_argument('--weight_decay', type=float, default=0.01)
     parser.add_argument('--lr_scheduler', type=str, default='linear')
-    parser.add_argument('--warmup_ratio', type=int, default=0.1)
+    parser.add_argument('--warmup_ratio', type=float, default=0.1)
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--early_stopping_patience', type=int, default=3)
-    parser.add_argument('--gradient_clipping', type=float, default=0.1)
+    parser.add_argument('--gradient_clipping', type=float, default=1.0)
     parser.add_argument('--device', type=str,
                         choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument('--max_length', type=int, default=512)
@@ -333,7 +335,9 @@ def train(
             label2id=train_dataset.label2id,
             id2label=train_dataset.id2label,
             num_labels=train_dataset.nr_labels,
-            problem_type=problem_type
+            problem_type=problem_type,
+            hidden_dropout_prob=args.dropout,
+            attention_probs_dropout_prob=args.dropout,
         )
         tokenizer = AutoTokenizer.from_pretrained(args.load)
 
@@ -353,7 +357,9 @@ def train(
             label2id=train_dataset.label2id,
             id2label=train_dataset.id2label,
             num_labels=train_dataset.nr_labels,
-            problem_type=problem_type
+            problem_type=problem_type,
+            hidden_dropout_prob=args.dropout,
+            attention_probs_dropout_prob=args.dropout,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -379,10 +385,12 @@ def train(
         run_name=os.path.basename(project_dir),
         resume_from_checkpoint=args.load if resume_from_checkpoint else None,
         metric_for_best_model='eval_loss' if val_dataset is not None else None,
+        max_grad_norm=args.gradient_clipping,
         use_cpu=device_name == 'cpu',
     )
 
-    total_steps = len(train_dataset) * args.epochs
+    # Number of optimizer steps (one per batch, single device, no gradient accumulation)
+    total_steps = math.ceil(len(train_dataset) / args.batch_size) * args.epochs
     optimizer = AdamW(model.parameters(), lr=args.learning_rate,
                       weight_decay=args.weight_decay)
     scheduler = get_linear_schedule_with_warmup(
