@@ -177,6 +177,37 @@ def precision_recall_curve(true_labels: np.ndarray, pred_probs: np.ndarray, is_m
     return ax, float(thresholds[acceptable_precision_i])
 
 
+# Choices made for ties, so each tie is only asked once per run and all functions use the same model
+TIE_CHOICES = {}
+
+
+def select_best_model(performance: pd.DataFrame, task: str, metric: str = 'F1') -> str:
+    """ Returns the model with the highest metric (on the validation split). If several models share the
+        highest score, asks which one to use.
+    """
+    best_models = performance[performance[metric] == performance[metric].max()]
+    models = list(best_models['Model'])
+    if len(models) == 1:
+        return models[0]
+
+    key = (task, metric, tuple(sorted(models)))
+    if key not in TIE_CHOICES:
+        print(f"\nMultiple models have the highest {metric} score for task: {task}")
+        for idx, model in enumerate(models, start=1):
+            print(f"{idx}: {model} ({metric}: {best_models[metric].iloc[idx - 1]:.4f})")
+        while True:
+            try:
+                choice = int(input(f"Select a model for {task} (1-{len(models)}): "))
+                if 1 <= choice <= len(models):
+                    break
+                print("Invalid choice. Please enter a number from the list.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+        TIE_CHOICES[key] = models[choice - 1]
+        print(f"Selected {TIE_CHOICES[key]} for {task} (tie on {metric}: {models})")
+    return TIE_CHOICES[key]
+
+
 def plot_precision_recall_curve_all_tasks(task_model_performance: dict, save_dir: str) -> dict:
     """Creates a multiplot of all precision recall plots for all multilabel cases.
         task_model_performance must hold the validation metrics (collect_metrics_all_tasks(split="val")):
@@ -191,33 +222,7 @@ def plot_precision_recall_curve_all_tasks(task_model_performance: dict, save_dir
 
     for i, (task, _) in enumerate(task_model_performance.items()):
         ax = axes[i]
-        best_models = task_model_performance[task][task_model_performance[task]
-                                                   ['F1'] == task_model_performance[task]['F1'].max()].copy()
-
-        if len(best_models) > 1:
-            print(
-                f"\nMultiple models have the highest F1 score for task: {task}")
-
-            # Create a numbered list from 1 onwards
-            model_choices = list(best_models.itertuples(index=False))
-            for idx, row in enumerate(model_choices, start=1):
-                print(f"{idx}: {row.Model} (F1: {row.F1:.4f})")
-
-            while True:
-                try:
-                    choice = int(
-                        input(f"Select a model for {task} (1-{len(model_choices)}): "))
-                    if 1 <= choice <= len(model_choices):
-                        best_model = model_choices[choice - 1].Model
-                        break
-                    else:
-                        print("Invalid choice. Please enter a number from the list.")
-                except ValueError:
-                    print("Invalid input. Please enter a number.")
-
-        else:
-            best_model = best_models.loc[best_models.index[0], 'Model']
-
+        best_model = select_best_model(task_model_performance[task], task)
         best_models_task[task] = best_model
         model_path = find_model_path(task, best_model)
         val_pred_file = os.path.join(
@@ -486,7 +491,8 @@ def plot_best_f1_scores(directory, val_directory):
 
             # Select the model with the highest validation F1 score, report its test scores
             val_df = pd.read_csv(os.path.join(val_directory, filename))
-            best_model_name = val_df.loc[val_df['F1'].idxmax(), 'Model']
+            task_key = filename.replace("model_performance_", "").replace(".csv", "")
+            best_model_name = select_best_model(val_df, task_key)
             best_model = df[df['Model'] == best_model_name].iloc[0]
             
             # Store relevant data
