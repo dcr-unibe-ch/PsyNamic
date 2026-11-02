@@ -273,7 +273,7 @@ def load_model(args: argparse.Namespace) -> Trainer:
         )
 
     model = model_class.from_pretrained(args.load).to(device)
-    return Trainer(model=model, compute_metrics=metrics, tokenizer=tokenizer)
+    return Trainer(model=model, compute_metrics=metrics, processing_class=tokenizer)
 
 
 def load_data(data_dir: str, meta_file: str, model_identifier: str) -> tuple[DataSplit, DataSplit, DataSplit]:
@@ -417,7 +417,7 @@ def train(
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         compute_metrics=metrics,
         optimizers=(optimizer, scheduler),
     )
