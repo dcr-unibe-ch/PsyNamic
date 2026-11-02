@@ -114,7 +114,10 @@ def custom_recall(true_labels, pred_labels):
 
 
 def precision_recall_curve(true_labels: np.ndarray, pred_probs: np.ndarray, is_multilabel: bool, task: str, ax=None, save_path=None, nr_thresholds=50, best_model: str = ''):
-    """Produces a precision recal curve"""
+    """Produces a precision recal curve and returns (ax, threshold).
+        threshold: starting from the max F1 threshold, the lowest threshold whose weighted precision stays within
+        0.05 of the precision at max F1 (favours recall). None for single-label tasks.
+    """
     precisions = []
     recalls = []
     f1_scores = []
@@ -124,7 +127,7 @@ def precision_recall_curve(true_labels: np.ndarray, pred_probs: np.ndarray, is_m
         if is_multilabel:
             pred_labels = (pred_probs >= threshold).astype(int)
         else:
-            return
+            return ax, None
 
         precisions.append(custom_precision(true_labels, pred_labels))
         recalls.append(custom_recall(true_labels, pred_labels))
@@ -171,16 +174,20 @@ def precision_recall_curve(true_labels: np.ndarray, pred_probs: np.ndarray, is_m
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
-    return ax
+    return ax, float(thresholds[acceptable_precision_i])
 
 
 def plot_precision_recall_curve_all_tasks(task_model_performance: dict, save_dir: str) -> dict:
-    """Creates a multiplot of all precision recall plots for all multilabel cases"""
+    """Creates a multiplot of all precision recall plots for all multilabel cases.
+        task_model_performance must hold the validation metrics (collect_metrics_all_tasks(split="val")):
+        the best model and the curves are both based on the validation split, never on test.
+    """
     ncols = 3
     nrows = math.ceil(len(task_model_performance) / ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5 * nrows))
     axes = axes.flatten()
     best_models_task = {}
+    thresholds = []
 
     for i, (task, _) in enumerate(task_model_performance.items()):
         ax = axes[i]
@@ -213,25 +220,30 @@ def plot_precision_recall_curve_all_tasks(task_model_performance: dict, save_dir
 
         best_models_task[task] = best_model
         model_path = find_model_path(task, best_model)
-        test_pred_file = os.path.join(
-            EXPERIMENTS_PATH, model_path, 'test_predictions.csv')
+        val_pred_file = os.path.join(
+            EXPERIMENTS_PATH, model_path, 'val_predictions.csv')
 
         print(
             f"Plotting Precision-Recall curve for {task} using {best_model}...")
         params_file = os.path.join(
-            os.path.dirname(test_pred_file), "params.json")
+            os.path.dirname(val_pred_file), "params.json")
 
         with open(params_file, "r", encoding="utf-8") as f:
             params = json.load(f)
             is_multilabel = params.get("is_multilabel", True)
 
-        y_true, _, probs = extract_predictions(test_pred_file, is_multilabel)
-        precision_recall_curve(y_true, probs, is_multilabel,
-                               task, ax, best_model=best_model)
+        y_true, _, probs = extract_predictions(val_pred_file, is_multilabel)
+        _, threshold = precision_recall_curve(y_true, probs, is_multilabel,
+                                              task, ax, best_model=best_model)
+        if threshold is not None:
+            thresholds.append({"task": task, "model": best_model, "threshold": threshold})
 
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, "precision_recall_curves.png"))
     plt.close()
+
+    # Thresholds for model_paths.json, derived on the validation split
+    pd.DataFrame(thresholds).to_csv(os.path.join(save_dir, "thresholds.csv"), index=False)
     return best_models_task
 
 
@@ -300,14 +312,14 @@ def find_model_path(task: str, model: str) -> str:
             return exp_dir
 
 
-def collect_metrics_for_task(task: str) -> list[dict]:
-    """ Collect or calculate all metrics with confidence interval """
+def collect_metrics_for_task(task: str, split: str = "test") -> list[dict]:
+    """ Collect or calculate all metrics with confidence interval on the given split ("val" or "test") """
     model_performance = []
     for exp_dir in os.listdir(EXPERIMENTS_PATH):
         if task not in exp_dir:
             continue
         exp_path = os.path.join(EXPERIMENTS_PATH, exp_dir)
-        test_pred_file = os.path.join(exp_path, "test_predictions.csv")
+        pred_file = os.path.join(exp_path, f"{split}_predictions.csv")
         params_file = os.path.join(exp_path, "params.json")
 
         with open(params_file, "r", encoding="utf-8") as f:
@@ -315,7 +327,7 @@ def collect_metrics_for_task(task: str) -> list[dict]:
             is_multilabel = params.get("is_multilabel", True)
 
         y_true, y_pred, probs = extract_predictions(
-            test_pred_file, is_multilabel)
+            pred_file, is_multilabel)
         print(f"Computing metrics for {exp_dir}...")
         metrics = get_metrics_ci(y_true, y_pred)
         model = exp_dir.split("_")[0]
@@ -338,23 +350,31 @@ def collect_metrics_for_task(task: str) -> list[dict]:
     return model_performance
 
 
-def collect_metrics_all_tasks() -> dict:
+def performance_dir(split: str = "test") -> str:
+    """ Folder of the model_performance_{task}.csv files: test next to the experiments folder, val in a subfolder """
+    if split == "test":
+        return os.path.dirname(EXPERIMENTS_PATH)
+    return os.path.join(os.path.dirname(EXPERIMENTS_PATH), f"model_performance_{split}")
+
+
+def collect_metrics_all_tasks(split: str = "test") -> dict:
     print("Finding experiment directories...")
     task_model_performance = {}
 
     print(f"Identifying tasks: {TASKS}")
     tasks = [task.lower().replace(' ', '_') for task in TASKS]
+    os.makedirs(performance_dir(split), exist_ok=True)
 
     for task in tasks:
         print(f"Processing task: {task}")
         model_performance = []
         outfile = f"model_performance_{task}.csv"
-        outfile = os.path.join(os.path.dirname(EXPERIMENTS_PATH), outfile)
+        outfile = os.path.join(performance_dir(split), outfile)
         if os.path.exists(outfile):
             print(f"Metrics already calculated, loading {outfile}")
             model_performance = pd.read_csv(outfile)
         else:
-            model_performance = pd.DataFrame(collect_metrics_for_task(task))
+            model_performance = pd.DataFrame(collect_metrics_for_task(task, split))
             model_performance.to_csv(outfile, index=False)
 
         task_model_performance[task] = model_performance
@@ -452,7 +472,8 @@ def plot_performance_per_label(y_true, y_pred, label_mapping, save_path, task: s
     plt.close()
 
 
-def plot_best_f1_scores(directory):
+def plot_best_f1_scores(directory, val_directory):
+    """ directory: test performance files, val_directory: validation performance files (same file names) """
     task_data = []
 
     # Iterate through CSV files in the directory
@@ -463,8 +484,10 @@ def plot_best_f1_scores(directory):
             # Load CSV
             df = pd.read_csv(os.path.join(directory, filename))
 
-            # Find the row with the highest F1 score
-            best_model = df.loc[df['F1'].idxmax()]
+            # Select the model with the highest validation F1 score, report its test scores
+            val_df = pd.read_csv(os.path.join(val_directory, filename))
+            best_model_name = val_df.loc[val_df['F1'].idxmax(), 'Model']
+            best_model = df[df['Model'] == best_model_name].iloc[0]
             
             # Store relevant data
             task_data.append({
@@ -646,8 +669,9 @@ def main():
     # #     task_model_performance, save_dir=save_dir)
     # for task in TASKS:
     #     task_key = task.lower().replace(" ", "_")
+    #     # select on the validation split
     #     df = pd.read_csv(os.path.join(
-    #         os.path.dirname(EXPERIMENTS_PATH), f"model_performance_{task_key}.csv"))
+    #         performance_dir("val"), f"model_performance_{task_key}.csv"))
     #     best_model = df.loc[df['F1'] == df['F1'].max()]['Model'].values
     #     if len(best_model) > 1:
     #         print(
