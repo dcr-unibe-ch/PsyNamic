@@ -26,6 +26,7 @@ from transformers import (AutoModelForSequenceClassification,
                           EarlyStoppingCallback, Trainer, TrainingArguments,
                           get_linear_schedule_with_warmup)
 from transformers.trainer_utils import PredictionOutput
+from transformers.utils import logging as hf_logging
 
 ############################################################################################################
 # REFERENCES
@@ -197,6 +198,8 @@ def init_argparse():
     parser.add_argument('--device', type=str,
                         choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument('--max_length', type=int, default=512)
+    # Training logs are always saved locally (train.log, trainer_state.json); replace W&B with tensorboard
+    parser.add_argument('--report_to', type=str, default='tensorboard')
 
     # CONT_TRAIN
     parser.add_argument('--load', type=str, default=None)  # Experiment folder
@@ -379,8 +382,7 @@ def train(
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
-        report_to='wandb',
-        logging_dir=project_dir,
+        report_to=args.report_to,
         logging_strategy="epoch",
         run_name=os.path.basename(project_dir),
         resume_from_checkpoint=args.load if resume_from_checkpoint else None,
@@ -424,8 +426,20 @@ def train(
         trainer.add_callback(EarlyStoppingCallback(
             early_stopping_patience=args.early_stopping_patience))
 
-    # Train the model
-    trainer.train()
+    # Train the model, writing the transformers log to train.log in the experiment folder
+    log_handler = logging.FileHandler(os.path.join(project_dir, 'train.log'))
+    log_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+    hf_logging.set_verbosity_info()
+    hf_logger = logging.getLogger('transformers')
+    hf_logger.addHandler(log_handler)
+    try:
+        trainer.train()
+    finally:
+        hf_logger.removeHandler(log_handler)
+        log_handler.close()
+
+    # Full log history (loss and metrics per epoch) and the path of the best checkpoint
+    trainer.state.save_to_json(os.path.join(project_dir, 'trainer_state.json'))
 
     return trainer
 
@@ -532,6 +546,9 @@ def finetune(args: argparse.Namespace) -> None:
     save_train_args(project_path, args, add_params)
     trainer = train(project_path, train_dataset,
                     args, val_dataset=val_dataset, is_multilabel=meta_data['Is_multilabel'])
+    # Validation predictions with probabilities, needed for variant and threshold selection
+    if val_dataset is not None:
+        predict(project_path, trainer, val_dataset, outfile='val')
     pred_file = predict(project_path, trainer, test_dataset)
     # Evaluate if true labels are available
     predictions = trainer.predict(test_dataset)
