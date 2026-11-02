@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import logging
 import math
@@ -287,6 +288,19 @@ def load_data(data_dir: str, meta_file: str, model_identifier: str) -> tuple[Dat
         all csv are expected to have an 'id', 'text' and 'label' column.
 
     """
+    # The LLM results depend on exactly these test sets: fail if test.csv differs from its recorded checksum
+    checksum_file = os.path.join(os.path.dirname(os.path.normpath(data_dir)), 'test_checksums.sha256')
+    if os.path.exists(checksum_file):
+        with open(checksum_file, 'r', encoding='utf-8') as f:
+            checksums = {name: checksum for checksum, name in (line.split() for line in f if line.strip())}
+        expected = checksums.get(f'{os.path.basename(os.path.normpath(data_dir))}/test.csv')
+        if expected is not None:
+            with open(os.path.join(data_dir, 'test.csv'), 'rb') as f:
+                if hashlib.sha256(f.read()).hexdigest() != expected:
+                    raise ValueError(f'test.csv in {data_dir} differs from its checksum in {checksum_file}.')
+    else:
+        print(f'Warning: no {checksum_file}, the test split is not checked against its checksum.')
+
     # open meta file
     meta_data = json.load(open(meta_file, 'r'))
     if 'NER' in meta_data['Task']:
