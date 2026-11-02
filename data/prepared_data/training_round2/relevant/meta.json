@@ -9,5 +9,5 @@
     "Use_val": true,
     "Is_multilabel": false,
     "Test_size": 565,
-    "Val_size": 565
+    "Val_size": 564
 }
