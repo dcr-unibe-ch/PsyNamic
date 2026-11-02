@@ -297,6 +297,15 @@ def load_data(data_dir: str, meta_file: str, model_identifier: str) -> tuple[Dat
         train_dataset, test_dataset, eval_dataset = datahandler.get_strat_split(
             use_val=use_val)
 
+        # Never re-split: the splits used must be exactly the frozen files in data_dir
+        for name, split in [('train', train_dataset), ('test', test_dataset), ('val', eval_dataset)]:
+            split_file = os.path.join(data_dir, f'{name}.csv')
+            if split is None and not os.path.exists(split_file):
+                continue
+            file_ids = pd.read_csv(split_file)[DataHandler.ID_COL]
+            if split is None or sorted(split.df[DataHandler.ID_COL]) != sorted(file_ids):
+                raise ValueError(f'{name} split does not match {split_file}; the data was re-split.')
+
     return train_dataset, test_dataset, eval_dataset
 
 
