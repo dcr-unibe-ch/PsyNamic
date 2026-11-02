@@ -230,40 +230,45 @@ class DataSplitBIO(DataSplit):
             tokens = row[self.TOKEN_COL]
             ner_tags = row[self.NER_COL]
             sample_id = row[self.ID_COL]
-
-            # Tokenize the whole sequence (no truncation)
-            encoding = self.tokenizer(
-                tokens,
-                truncation=False,
-                is_split_into_words=True,
-                return_tensors='pt'
-            )
-            input_ids = encoding['input_ids'][0].tolist()
-            word_ids = encoding.word_ids(batch_index=0)
-            bert_tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
             labels_ids = [self.label2id[tag] for tag in ner_tags]
 
-            # Chunk the tokenized input which exceeds max_len
-            num_chunks = (len(input_ids) + self.max_len - 1) // self.max_len
-            for chunk_idx in range(num_chunks):
-                start = chunk_idx * self.max_len
-                end = start + self.max_len
-                chunk_word_ids = word_ids[start:end]
-                chunk_bert_tokens = bert_tokens[start:end]
-                chunk_token_indices = sorted({i for i in chunk_word_ids if i is not None})
-                chunk_tokens = [tokens[i] for i in chunk_token_indices]
-                chunk_ner_tags = [ner_tags[i] for i in chunk_token_indices]
-                aligned_labels = self.align_labels_with_tokens(labels_ids, chunk_word_ids)
+            # Chunk documents which exceed max_len at word boundaries; each chunk is tokenized exactly as in
+            # __getitem__ (with [CLS]/[SEP]), so the labels are aligned with the tokens the model sees
+            for chunk_idx, (start, end) in enumerate(self._chunk_word_spans(tokens)):
+                chunk_tokens = tokens[start:end]
+                encoding = self.tokenizer(
+                    chunk_tokens,
+                    truncation=True,
+                    max_length=self.max_len,
+                    is_split_into_words=True,
+                )
+                chunk_word_ids = encoding.word_ids()
+                aligned_labels = self.align_labels_with_tokens(labels_ids[start:end], chunk_word_ids)
                 chunked_rows.append({
                     self.ID_COL: sample_id,
                     'chunk_idx': chunk_idx,
-                    self.BERT_TOKEN_COL: chunk_bert_tokens,
-                    self.WORD_IDS: chunk_word_ids,
+                    self.BERT_TOKEN_COL: self.tokenizer.convert_ids_to_tokens(encoding['input_ids']),
+                    # Word ids relative to the whole document, so they stay unique across chunks
+                    self.WORD_IDS: [None if i is None else i + start for i in chunk_word_ids],
                     self.BERT_NER_COL: aligned_labels,
-                    self.TOKEN_COL: chunk_tokens,  
-                    self.NER_COL: chunk_ner_tags 
+                    self.TOKEN_COL: chunk_tokens,
+                    self.NER_COL: ner_tags[start:end]
                 })
         self.df = pd.DataFrame(chunked_rows)
+
+    def _chunk_word_spans(self, tokens: list[str]) -> list[tuple[int, int]]:
+        """Split a document into (start, end) word spans whose sub-tokens fit into max_len incl. special tokens."""
+        word_ids = self.tokenizer(tokens, is_split_into_words=True, add_special_tokens=False).word_ids()
+        nr_subtokens = np.bincount([i for i in word_ids if i is not None], minlength=len(tokens))
+        budget = self.max_len - self.tokenizer.num_special_tokens_to_add()
+        spans, start, used = [], 0, 0
+        for i, n in enumerate(nr_subtokens):
+            if used + n > budget and i > start:
+                spans.append((start, i))
+                start, used = i, 0
+            used += n
+        spans.append((start, len(tokens)))
+        return spans
 
 
     def __getitem__(self, idx: int) -> dict:
