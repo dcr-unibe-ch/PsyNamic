@@ -532,6 +532,9 @@ class DataHandlerBIO():
                 print(
                     f"Overlap between Test and Validation splits: {overlap_report['Test-Val']}")
 
+        if any(overlap_report.values()):
+            raise ValueError(f'Overlap between splits detected: {overlap_report}')
+
     def check_duplicates(self):
         """Check for duplicates in the train, test, and validation splits."""
         if self.train is None or self.test is None:
@@ -689,12 +692,10 @@ class DataHandler():
             val = DataSplit(self.val, self.id2label, self.tokenizer,
                             self.max_len, self.is_multilabel)
             if use_val:
-                if train.overlap([test, val]):
-                    raise ValueError('Overlap between splits detected.')
+                self._check_no_overlap(train, test, val)
                 return train, test, val
             else:
-                if train.overlap([test]):
-                    raise ValueError('Overlap between splits detected.')
+                self._check_no_overlap(train, test)
                 return train, test, None
 
         else:
@@ -748,10 +749,10 @@ class DataHandler():
                 # Second split: remaining (e.g. 40%) into val (20%) and test (e.g. 20%)
                 val_test_split = StratifiedShuffleSplit(
                     n_splits=1, train_size=0.5, test_size=0.5, random_state=SEED)
-                val_idx, val_idx = next(val_test_split.split(
+                val_idx, test_idx = next(val_test_split.split(
                     remaining_df, remaining_df[self.LABEL_COL]))
                 val_df = remaining_df.iloc[val_idx]
-                test_df = remaining_df.iloc[val_idx]
+                test_df = remaining_df.iloc[test_idx]
                 self.train = train_df
                 self.val = val_df
                 self.test = test_df
@@ -759,10 +760,10 @@ class DataHandler():
                 # Direct split: train (e.g. 80%) and test (e.g. 20%)
                 split = StratifiedShuffleSplit(
                     n_splits=1, train_size=train_size, random_state=SEED)
-                train_idx, val_idx = next(split.split(
+                train_idx, test_idx = next(split.split(
                     self.df, self.df[self.LABEL_COL]))
                 train_df = self.df.iloc[train_idx]
-                test_df = self.df.iloc[val_idx]
+                test_df = self.df.iloc[test_idx]
                 self.train = train_df
                 self.test = test_df
 
@@ -782,13 +783,22 @@ class DataHandler():
         if use_val:
             val = DataSplit(val_df, self.id2label, self.tokenizer,
                             self.max_len, self.is_multilabel)
-            if train.overlap([test, val]):
-                raise ValueError('Overlap between splits detected.')
+            self._check_no_overlap(train, test, val)
             return train, test, val
         else:
-            if train.overlap([test]):
-                raise ValueError('Overlap between splits detected.')
+            self._check_no_overlap(train, test)
             return train, test, None
+
+    @staticmethod
+    def _check_no_overlap(train: DataSplit, test: DataSplit, val: Optional[DataSplit] = None) -> None:
+        """Raise if any ID occurs in more than one split (train/test, and if given train/val and val/test)."""
+        pairs = [('train', train, 'test', test)]
+        if val is not None:
+            pairs += [('train', train, 'val', val), ('val', val, 'test', test)]
+        for name_a, split_a, name_b, split_b in pairs:
+            if split_a.overlap([split_b]):
+                raise ValueError(
+                    f'Overlap between {name_a} and {name_b} splits detected.')
 
     def get_strat_k_fold_split(self, train_size: float = 0.8, n_splits: int = 5, seed: int = SEED) -> tuple[Iterable[tuple[DataSplit, DataSplit]], DataSplit]:
         """Get stratified k-fold split of the data; i.e., n splits into train and validation set, with a test set.
