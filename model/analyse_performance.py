@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from confidenceinterval.bootstrap import bootstrap_ci
 from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score, precision_recall_curve)
+    accuracy_score, f1_score, precision_score, recall_score, precision_recall_curve, confusion_matrix)
 import math
 sns.set(style="whitegrid")
 
@@ -111,6 +111,19 @@ def custom_precision(true_labels, pred_labels):
 
 def custom_recall(true_labels, pred_labels):
     return recall_score(true_labels, pred_labels, average="weighted", zero_division=0)
+
+
+# Metrics for the positive class only (relevance screening: 1 = relevant)
+def relevant_f1(true_labels, pred_labels):
+    return f1_score(true_labels, pred_labels, average="binary", pos_label=1, zero_division=0)
+
+
+def relevant_precision(true_labels, pred_labels):
+    return precision_score(true_labels, pred_labels, average="binary", pos_label=1, zero_division=0)
+
+
+def relevant_recall(true_labels, pred_labels):
+    return recall_score(true_labels, pred_labels, average="binary", pos_label=1, zero_division=0)
 
 
 def precision_recall_curve(true_labels: np.ndarray, pred_probs: np.ndarray, is_multilabel: bool, task: str, ax=None, save_path=None, nr_thresholds=50, best_model: str = ''):
@@ -353,6 +366,51 @@ def collect_metrics_for_task(task: str, split: str = "test") -> list[dict]:
         })
 
     return model_performance
+
+
+def evaluate_selected_models(best_models_task: dict, thresholds_file: str, save_dir: str) -> pd.DataFrame:
+    """ Final evaluation: test metrics of the selected model per task (best_models_task, from
+        plot_precision_recall_curve_all_tasks on the validation split) at the deployed thresholds (thresholds.csv),
+        with BCa bootstrap CIs. Single-label tasks use the most probable label.
+        For relevance, additionally the confusion matrix and precision/recall/F1 of the relevant class.
+        Writes test_performance_selected.csv to save_dir.
+    """
+    thresholds = pd.read_csv(thresholds_file).set_index("task")["threshold"].to_dict()
+    rows = []
+    for task, model in best_models_task.items():
+        exp_path = os.path.join(EXPERIMENTS_PATH, find_model_path(task, model))
+        with open(os.path.join(exp_path, "params.json"), "r", encoding="utf-8") as f:
+            is_multilabel = json.load(f).get("is_multilabel", True)
+
+        threshold = thresholds[task] if is_multilabel else None
+        y_true, y_pred, _ = extract_predictions(
+            os.path.join(exp_path, "test_predictions.csv"), is_multilabel,
+            threshold if is_multilabel else 0.5)
+
+        print(f"Computing test metrics for {task} ({model}, threshold {threshold})...")
+        metrics = get_metrics_ci(y_true, y_pred)
+        row = {"Task": task, "Model": model, "Threshold": threshold}
+        # Precision, recall and F1 are support-weighted averages; accuracy is subset accuracy for multilabel
+        for name, key in [("Weighted F1", "f1"), ("Accuracy", "accuracy"),
+                          ("Weighted Precision", "precision"), ("Weighted Recall", "recall")]:
+            row[name] = metrics[key][0]
+            row[f"{name} CI Lower"] = metrics[key][1][0]
+            row[f"{name} CI Upper"] = metrics[key][1][1]
+
+        if task == "relevant":
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+            row.update({"TP": tp, "FP": fp, "FN": fn, "TN": tn})
+            for name, metric in [("Relevant F1", relevant_f1), ("Relevant Precision", relevant_precision),
+                                 ("Relevant Recall", relevant_recall)]:
+                score, ci = bootstrap(metric, y_true, y_pred)
+                row[name] = score
+                row[f"{name} CI Lower"] = ci[0]
+                row[f"{name} CI Upper"] = ci[1]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    df.to_csv(os.path.join(save_dir, "test_performance_selected.csv"), index=False)
+    return df
 
 
 def performance_dir(split: str = "test") -> str:
@@ -664,6 +722,11 @@ def main():
     save_dir = "/mnt/c/Users/vb25l522/Documents/PsyNamic/model/performance_plots"
     f1_data = pd.read_csv('/mnt/c/Users/vb25l522/Documents/PsyNamic/model/evaluation/best_f1_scores.csv')
     bar_plot_with_ci(f1_data, 'task', 'f1_score', 'Best F1 Score per Variable', os.path.join(save_dir, 'best_f1_scores_per_task.png'))
+
+    # Final evaluation of the retrained models: select variant and thresholds on val, evaluate on test once
+    # val_performance = collect_metrics_all_tasks(split="val")
+    # best_models = plot_precision_recall_curve_all_tasks(val_performance, save_dir=save_dir)
+    # evaluate_selected_models(best_models, os.path.join(save_dir, "thresholds.csv"), save_dir=save_dir)
 
     # task_model_performance = collect_metrics_all_tasks()
     # plot_model_metric_all_tasks(task_model_performance,
