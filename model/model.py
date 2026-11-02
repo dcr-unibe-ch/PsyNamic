@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from confidenceinterval import classification_report_with_ci
 from datahandler import (MODEL_IDENTIFIER, DataHandler, DataHandlerBIO,
                          DataSplit, DataSplitBIO, SimpleDataset)
+from analyse_performance import extract_predictions, get_metrics_ci
 from evaluate import load
 from sklearn.metrics import (accuracy_score, f1_score, precision_score,
                              recall_score)
@@ -455,14 +456,16 @@ def predict(project_folder: str, trainer: Trainer, test_dataset: Union[DataSplit
         pred_labels_idx = np.argmax(predictions.predictions, axis=2)
 
         for true_l, pred_l, prob, data in zip(predictions.label_ids, pred_labels_idx, probs_incl_spec, test_dataset):
-            id_, tokens, _ = data
-            if not (len(true_l) == len(pred_l) == len(prob) == len(tokens)):
+            id_, bert_tokens, _, word_ids = data
+            if not (len(true_l) == len(pred_l) == len(prob)):
                 raise ValueError('Lengths of predictions, true labels and probabilities do not match')
-            for t, p, pr, token in zip(true_l, pred_l, prob, tokens):
+            # bert_tokens/word_ids cover the chunk without padding, so zip stops before the padded positions
+            for t, p, pr, token, word_id in zip(true_l, pred_l, prob, bert_tokens, word_ids):
                 if t != -100:
                     pred_data.append({
                         "id": id_,
                         "token": token,
+                        "word_id": word_id,
                         "prediction": test_dataset.labels[p],
                         "probability": pr.tolist(),
                         "label": test_dataset.labels[t]
@@ -510,14 +513,22 @@ def predict(project_folder: str, trainer: Trainer, test_dataset: Union[DataSplit
     df.to_csv(pred_file, index=False)
     return pred_file
 
-def evaluate(project_folder: str, true_labels, pred_labels, outfile: str = None) -> str:
-    """Evaluates predictions and saves metrics to a file."""
-    report_df = classification_report_with_ci(true_labels, pred_labels)
+def evaluate(project_folder: str, pred_file: str, is_multilabel: bool, is_ner: bool, outfile: str = None) -> Union[str, None]:
+    """Evaluates the predictions saved by predict() with bootstrap CIs and saves the metrics to a file (as json).
+        Single-label: classification report per class. Multilabel: weighted metrics at threshold 0.5
+        (as in analyse_performance.py). NER is not evaluated here, but with the NER evaluation in PsyNamic-BERTvsLLMs.
+    """
+    if is_ner:
+        return None
+    y_true, y_pred, _ = extract_predictions(pred_file, is_multilabel)
+    if is_multilabel:
+        report_dict = get_metrics_ci(y_true, y_pred)
+    else:
+        report_dict = classification_report_with_ci(y_true, y_pred).to_dict()
+
     filename = 'test_eval.csv' if outfile is None else f'{outfile}_eval.csv'
     eval_file = os.path.join(project_folder, filename)
     with open(eval_file, 'w', encoding='utf-8') as f:
-        # Save the classification report as dict
-        report_dict = report_df.to_dict()
         json.dump(report_dict, f)
     return eval_file
 
@@ -550,23 +561,7 @@ def finetune(args: argparse.Namespace) -> None:
     if val_dataset is not None:
         predict(project_path, trainer, val_dataset, outfile='val')
     pred_file = predict(project_path, trainer, test_dataset)
-    # Evaluate if true labels are available
-    predictions = trainer.predict(test_dataset)
-    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
-        true_labels = predictions.label_ids
-        probs = F.sigmoid(torch.Tensor(predictions.predictions))
-        pred_labels = np.zeros(probs.shape)
-        pred_labels[np.where(probs >= 0.5)] = 1
-    else:
-        true_labels = predictions.label_ids
-        logits = torch.Tensor(predictions.predictions)
-        if logits.ndim == 1:
-            probs = F.softmax(logits, dim=0).numpy()
-            pred_labels = np.argmax(probs)
-        else:
-            probs = F.softmax(logits, dim=1).numpy()
-            pred_labels = np.argmax(probs, axis=1)
-    evaluate(project_path, true_labels, pred_labels)
+    evaluate(project_path, pred_file, meta_data['Is_multilabel'], isinstance(test_dataset, DataSplitBIO))
 
 
 def cont_finetune(args: argparse.Namespace) -> None:
@@ -581,22 +576,7 @@ def cont_finetune(args: argparse.Namespace) -> None:
     trainer = train(args.load, train_dataset,
                     args, resume_from_checkpoint=True, is_multilabel=meta_data['Is_multilabel'])
     pred_file = predict(args.load, trainer, test_dataset)
-    predictions = trainer.predict(test_dataset)
-    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
-        true_labels = predictions.label_ids
-        probs = F.sigmoid(torch.Tensor(predictions.predictions))
-        pred_labels = np.zeros(probs.shape)
-        pred_labels[np.where(probs >= 0.5)] = 1
-    else:
-        true_labels = predictions.label_ids
-        logits = torch.Tensor(predictions.predictions)
-        if logits.ndim == 1:
-            probs = F.softmax(logits, dim=0).numpy()
-            pred_labels = np.argmax(probs)
-        else:
-            probs = F.softmax(logits, dim=1).numpy()
-            pred_labels = np.argmax(probs, axis=1)
-    evaluate(args.load, true_labels, pred_labels)
+    evaluate(args.load, pred_file, meta_data['Is_multilabel'], isinstance(test_dataset, DataSplitBIO))
 
 
 def load_and_evaluate(args: argparse.Namespace) -> str:
@@ -614,22 +594,8 @@ def load_and_evaluate(args: argparse.Namespace) -> str:
         args.data, data_meta_file, args.model)[1]
     
     pred_file = predict(exp_path, trainer, test_dataset, outfile=args.outfile)
-    predictions = trainer.predict(test_dataset)
-    if hasattr(test_dataset, 'is_multilabel') and test_dataset.is_multilabel:
-        true_labels = predictions.label_ids
-        probs = F.sigmoid(torch.Tensor(predictions.predictions))
-        pred_labels = np.zeros(probs.shape)
-        pred_labels[np.where(probs >= 0.5)] = 1
-    else:
-        true_labels = predictions.label_ids
-        logits = torch.Tensor(predictions.predictions)
-        if logits.ndim == 1:
-            probs = F.softmax(logits, dim=0).numpy()
-            pred_labels = np.argmax(probs)
-        else:
-            probs = F.softmax(logits, dim=1).numpy()
-            pred_labels = np.argmax(probs, axis=1)
-    evaluate(exp_path, true_labels, pred_labels, outfile=args.outfile)
+    evaluate(exp_path, pred_file, getattr(args, 'is_multilabel', False),
+             isinstance(test_dataset, DataSplitBIO), outfile=args.outfile)
 
 
 def load_and_predict(args: argparse.Namespace) -> None:
