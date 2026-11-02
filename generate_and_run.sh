@@ -2,7 +2,6 @@
 
 # List of models
 models=(
-    "pubmedbert"
     "biomedbert-abstract"
     "scibert"
     "biobert"
@@ -39,11 +38,6 @@ mkdir -p log
 
 for model in "${models[@]}"; do
     for task in "${tasks[@]}"; do
-        if [[ "$model" == "pubmedbert" && "$task" == "Age of Participants" ]]; then
-            echo "Skipping model $model for task $task"
-            continue
-        fi
-
         # Convert the task name to a filename-friendly format
         task_filename=$(echo "$task" | tr ' ' '_' | tr '[:upper:]' '[:lower:]')
 
