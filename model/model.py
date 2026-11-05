@@ -41,7 +41,7 @@ from transformers.utils import logging as hf_logging
 
 ############################################################################################################
 # some globals to set
-EXPERIMENT_PATH = './model/experiments'
+EXPERIMENT_PATH = os.environ.get('EXPERIMENT_PATH', './model/experiments')
 os.environ['WANDB_PROJECT'] = "psynamic"  # Used for logging to wandb
 ############################################################################################################
 
