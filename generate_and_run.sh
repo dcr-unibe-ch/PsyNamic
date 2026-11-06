@@ -26,7 +26,13 @@ if ! conda env list | grep -q psynamic_env; then
     pip install -r requirements.txt
 fi
 conda activate psynamic_env
-python -c "import evaluate; from transformers import AutoTokenizer, AutoModel; [(AutoTokenizer.from_pretrained(m), AutoModel.from_pretrained(m)) for m in ['microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract', 'allenai/scibert_scivocab_uncased', 'dmis-lab/biobert-v1.1', 'emilyalsentzer/Bio_ClinicalBERT', 'michiyasunaga/BioLinkBERT-base']]; evaluate.load('seqeval')"
+# Download once: importing torch/transformers on the login node takes minutes, so skip it when already done
+if [ ! -f "${CONDA_PREFIX}/.psynamic_models_downloaded" ]; then
+    echo "Downloading the base models (first time only, takes a few minutes)..."
+    python -c "import evaluate; from transformers import AutoTokenizer, AutoModel; [(AutoTokenizer.from_pretrained(m), AutoModel.from_pretrained(m)) for m in ['microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract', 'allenai/scibert_scivocab_uncased', 'dmis-lab/biobert-v1.1', 'emilyalsentzer/Bio_ClinicalBERT', 'michiyasunaga/BioLinkBERT-base']]; evaluate.load('seqeval')" \
+        && touch "${CONDA_PREFIX}/.psynamic_models_downloaded" \
+        || { echo "Downloading the base models failed"; exit 1; }
+fi
 
 # List of models
 models=(
