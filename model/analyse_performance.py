@@ -413,6 +413,51 @@ def evaluate_selected_models(best_models_task: dict, thresholds_file: str, save_
     return df
 
 
+def write_model_paths(best_models_task: dict, ner_model: str, out_file: str, thresholds_file: str = None) -> list[dict]:
+    """ Writes the webapp's pipeline/model_paths.json for the selected models: best_models_task from
+        plot_precision_recall_curve_all_tasks, ner_model = the NER variant selected in PsyNamic-BERTvsLLMs.
+        Model paths are models/<run folder>/<best checkpoint>, relative to the webapp's pipeline folder.
+        Multi-label thresholds come from thresholds_file (thresholds.csv), for deployment. Without it they are the
+        default "0.5"; for predictions without thresholds run the pipeline with --keep-all-labels.
+        Needs the best checkpoints (for config.json) in the run folders in EXPERIMENTS_PATH.
+    """
+    thresholds = pd.read_csv(thresholds_file).set_index("task")["threshold"].to_dict() if thresholds_file else {}
+    task_names = {task.lower().replace(' ', '_'): task for task in TASKS}
+    entries = []
+    for task, model in [*best_models_task.items(), ("ner_bio", ner_model)]:
+        run = find_model_path(task, model)
+        if run is None:
+            raise ValueError(f"No run folder for {task} with {model} in {EXPERIMENTS_PATH}")
+        run_path = os.path.join(EXPERIMENTS_PATH, run)
+        with open(os.path.join(run_path, "trainer_state.json"), "r", encoding="utf-8") as f:
+            checkpoint = os.path.basename(os.path.normpath(json.load(f)["best_model_checkpoint"]))
+        config_file = os.path.join(run_path, checkpoint, "config.json")
+        if not os.path.exists(config_file):
+            raise FileNotFoundError(f"{config_file} not found: extract the best checkpoints into {EXPERIMENTS_PATH}")
+        with open(config_file, "r", encoding="utf-8") as f:
+            id2label = json.load(f)["id2label"]
+        with open(os.path.join(run_path, "params.json"), "r", encoding="utf-8") as f:
+            is_multilabel = bool(json.load(f).get("is_multilabel", False))
+
+        if task == "ner_bio":
+            threshold = ""
+        elif is_multilabel:
+            threshold = str(thresholds[task]) if thresholds_file else "0.5"
+        else:
+            threshold = "0.5"  # not used: single-label tasks take the most probable label
+        entries.append({
+            "task": "NER" if task == "ner_bio" else task_names[task],
+            "model_path": f"models/{run}/{checkpoint}",
+            "prediction_threshold": threshold,
+            "id2label": id2label,
+            "is_multilabel": is_multilabel,
+        })
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=4, ensure_ascii=False)
+    return entries
+
+
 def performance_dir(split: str = "test") -> str:
     """ Folder of the model_performance_{task}.csv files: test next to the experiments folder, val in a subfolder """
     if split == "test":
@@ -727,6 +772,8 @@ def main():
     # val_performance = collect_metrics_all_tasks(split="val")
     # best_models = plot_precision_recall_curve_all_tasks(val_performance, save_dir=save_dir)
     # evaluate_selected_models(best_models, os.path.join(save_dir, "thresholds.csv"), save_dir=save_dir)
+    # Selected models for the webapp pipeline; pass thresholds_file=os.path.join(save_dir, "thresholds.csv") for deployment:
+    # write_model_paths(best_models, ner_model="<NER variant>", out_file="PsyNamic-Webapp/pipeline/model_paths.json")
 
     # task_model_performance = collect_metrics_all_tasks()
     # plot_model_metric_all_tasks(task_model_performance,
