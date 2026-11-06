@@ -87,6 +87,7 @@ for model in "${models[@]}"; do
 #SBATCH --time=${TIME}   ## days-hours:minutes:seconds
 ${SLURM_BILLING}
 #SBATCH --gres=gpu:${GPU}:1
+#SBATCH --nodes=1
 #SBATCH --mem=${MEM}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${CPUS}   ## Use greater than 1 for parallelized jobs
