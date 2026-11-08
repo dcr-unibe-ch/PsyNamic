@@ -90,7 +90,7 @@ def bootstrap(metric: callable, y_true: np.ndarray, y_pred: np.ndarray) -> tuple
         y_pred=y_pred,
         metric=metric,
         confidence_level=0.95,
-        n_resamples=9999,
+        n_resamples=1000,
         method="bootstrap_bca",
         random_state=42,
     )
@@ -665,7 +665,9 @@ def plot_best_f1_scores(directory, val_directory):
     plt.show()
 
 
-def bar_plot_with_ci(data: pd.DataFrame, x_col: str, y_col: str, title: str, save_path: str, exclude_tasks: list[str] = ['NER']):
+def bar_plot_with_ci(data: pd.DataFrame, x_col: str, y_col: str, title: str, save_path: str, exclude_tasks: list[str] = ['NER'],
+                     median_value: float = None):
+    """ median_value: if given, drawn as a grey dashed line (e.g. the median F1 over the reported parameters) """
     # Remove excluded tasks
     data = data[~data['task'].isin(exclude_tasks)]
 
@@ -732,6 +734,12 @@ def bar_plot_with_ci(data: pd.DataFrame, x_col: str, y_col: str, title: str, sav
         [header_task] + task_handles
     )
 
+    if median_value is not None:
+        ax.axhline(median_value, color='grey', linestyle='--', linewidth=1, zorder=0)
+        ax.text(len(df_tasks) - 0.5, median_value + 0.005, f"{median_value:.2f}",
+                ha='right', va='bottom', color='grey', fontsize=8)
+        handles += [spacer, Line2D([], [], color='grey', linestyle='--', label='Median F1 Score')]
+
     legend = ax.legend(
         handles=handles,
         loc="upper left",
@@ -749,7 +757,7 @@ def bar_plot_with_ci(data: pd.DataFrame, x_col: str, y_col: str, title: str, sav
 
     # Formatting
     ax.set_ylabel(f"Best F1 Score")
-    ax.set_xlabel("Variable")
+    ax.set_xlabel("Parameter")
     ax.set_title(title)
     ax.set_xticks(np.arange(len(df_tasks)))
     ax.set_xticklabels(df_tasks[x_col], rotation=45, ha="right")
