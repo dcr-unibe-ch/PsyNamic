@@ -218,3 +218,7 @@ archive/*
 *env/*
 
 !model/peformance_plots/*
+
+# transfer from ubelix
+pack_and_copy.sh
+psynamic_runs.tar.gz

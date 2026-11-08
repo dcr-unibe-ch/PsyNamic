@@ -40,8 +40,8 @@ EOF
     sbatch <<EOF
 #!/bin/bash
 #SBATCH --time=0-02:00:00
-#SBATCH --account=gratis
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu-invest
+#SBATCH --qos=job_gpu_preemptable
 #SBATCH --gres=gpu:a100:1
 #SBATCH --nodes=1
 #SBATCH --mem=32GB
