@@ -1,0 +1,12 @@
+task,model,threshold,v1_threshold,P@0.5,R@0.5,F1@0.5,P@tuned,R@tuned,F1@tuned
+age_of_participants,biobert,0.04,0.12,0.902,0.928,0.913,0.862,0.959,0.903
+application_form,biomedbert-abstract,0.12,0.10,0.958,0.909,0.931,0.905,0.929,0.916
+clinical_trial_phase,scibert,0.16,0.12,0.753,0.768,0.761,0.704,0.832,0.762
+condition,scibert,0.12,0.22,0.948,0.934,0.939,0.913,0.94,0.923
+outcomes,biolinkbert,0.29,0.18,0.865,0.827,0.834,0.815,0.859,0.826
+regimen,biobert,0.24,0.43,0.78,0.667,0.717,0.613,0.828,0.704
+setting,biobert,0.12,0.10,0.89,0.907,0.896,0.868,0.928,0.896
+study_control,biomedbert-abstract,0.29,0.12,0.89,0.814,0.839,0.855,0.845,0.839
+study_purpose,biomedbert-abstract,0.29,0.31,0.804,0.83,0.811,0.759,0.879,0.808
+substance_naivety,biolinkbert,0.18,0.16,0.905,0.906,0.903,0.879,0.906,0.888
+substances,biomedbert-abstract,0.1,0.16,0.932,0.914,0.92,0.879,0.945,0.909
